@@ -1,0 +1,12 @@
+# Certificate files
+certs/
+*.key
+*.crt
+*.csr
+*.pem
+
+# Sensitive configuration
+vars.yml
+
+# Ansible
+*.retry

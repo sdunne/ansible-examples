@@ -1,0 +1,175 @@
+---
+- name: Obtain Let's Encrypt certificate using ACME with GoDaddy DNS validation
+  hosts: localhost
+  gather_facts: false
+  vars:
+    # Let's Encrypt staging URL (for testing)
+    acme_directory: https://acme-staging-v02.api.letsencrypt.org/directory
+    # Production URL (uncomment when ready for production):
+    # acme_directory: https://acme-v02.api.letsencrypt.org/directory
+
+    # Certificate details
+    domain_name: example.com
+    additional_domains: []  # Optional: add more domains like ['www.example.com']
+
+    # Paths for certificate files
+    cert_dir: "./certs"
+    account_key_path: "{{ cert_dir }}/account.key"
+    cert_key_path: "{{ cert_dir }}/{{ domain_name }}.key"
+    cert_csr_path: "{{ cert_dir }}/{{ domain_name }}.csr"
+    cert_path: "{{ cert_dir }}/{{ domain_name }}.crt"
+    cert_fullchain_path: "{{ cert_dir }}/{{ domain_name }}-fullchain.crt"
+    cert_chain_path: "{{ cert_dir }}/{{ domain_name }}-chain.crt"
+
+    # GoDaddy API credentials (set these in vars file or vault)
+    godaddy_api_key: "{{ lookup('env', 'GODADDY_API_KEY') }}"
+    godaddy_api_secret: "{{ lookup('env', 'GODADDY_API_SECRET') }}"
+
+    # Email for Let's Encrypt account
+    acme_email: admin@example.com
+
+  tasks:
+    - name: Ensure certificate directory exists
+      ansible.builtin.file:
+        path: "{{ cert_dir }}"
+        state: directory
+        mode: '0750'
+
+    - name: Generate ACME account private key
+      community.crypto.openssl_privatekey:
+        path: "{{ account_key_path }}"
+        size: 4096
+        type: RSA
+      register: account_key
+
+    - name: Generate private key for certificate
+      community.crypto.openssl_privatekey:
+        path: "{{ cert_key_path }}"
+        size: 4096
+        type: RSA
+
+    - name: Generate Certificate Signing Request (CSR)
+      community.crypto.openssl_csr:
+        path: "{{ cert_csr_path }}"
+        privatekey_path: "{{ cert_key_path }}"
+        common_name: "{{ domain_name }}"
+        subject_alt_name: "{{ ['DNS:' + domain_name] + (additional_domains | map('regex_replace', '^', 'DNS:') | list) }}"
+        email_address: "{{ acme_email }}"
+
+    - name: Create ACME account
+      community.crypto.acme_account:
+        account_key_src: "{{ account_key_path }}"
+        acme_directory: "{{ acme_directory }}"
+        acme_version: 2
+        terms_agreed: true
+        contact:
+          - "mailto:{{ acme_email }}"
+      when: account_key.changed
+
+    - name: Request certificate and retrieve DNS challenge
+      community.crypto.acme_certificate:
+        account_key_src: "{{ account_key_path }}"
+        account_email: "{{ acme_email }}"
+        acme_directory: "{{ acme_directory }}"
+        acme_version: 2
+        challenge: dns-01
+        csr: "{{ cert_csr_path }}"
+        dest: "{{ cert_path }}"
+        fullchain_dest: "{{ cert_fullchain_path }}"
+        chain_dest: "{{ cert_chain_path }}"
+        terms_agreed: true
+        remaining_days: 30
+      register: acme_challenge
+
+    - name: Display challenge information
+      ansible.builtin.debug:
+        var: acme_challenge
+      when: acme_challenge.challenge_data is defined
+
+    - name: Create DNS TXT records at GoDaddy for ACME challenge
+      ansible.builtin.uri:
+        url: "https://api.godaddy.com/v1/domains/{{ item.key.split('.')[1:] | join('.') }}/records/TXT/_acme-challenge.{{ item.key.split('.')[0] }}"
+        method: PUT
+        headers:
+          Authorization: "sso-key {{ godaddy_api_key }}:{{ godaddy_api_secret }}"
+          Content-Type: "application/json"
+        body_format: json
+        body:
+          - data: "{{ item.value['dns-01'].resource_value }}"
+            ttl: 600
+        status_code: [200, 201]
+      loop: "{{ acme_challenge.challenge_data | dict2items }}"
+      when: acme_challenge.challenge_data is defined
+      register: dns_update
+
+    - name: Wait for DNS propagation
+      ansible.builtin.pause:
+        seconds: 60
+        prompt: "Waiting for DNS records to propagate..."
+      when: acme_challenge.challenge_data is defined
+
+    - name: Verify DNS TXT record exists
+      ansible.builtin.command:
+        cmd: "dig +short TXT _acme-challenge.{{ item.key }} @8.8.8.8"
+      loop: "{{ acme_challenge.challenge_data | dict2items }}"
+      when: acme_challenge.challenge_data is defined
+      register: dns_verify
+      changed_when: false
+
+    - name: Display DNS verification results
+      ansible.builtin.debug:
+        msg: "DNS TXT record for {{ item.item.key }}: {{ item.stdout }}"
+      loop: "{{ dns_verify.results }}"
+      when: dns_verify.results is defined
+
+    - name: Complete ACME challenge validation
+      community.crypto.acme_certificate:
+        account_key_src: "{{ account_key_path }}"
+        account_email: "{{ acme_email }}"
+        acme_directory: "{{ acme_directory }}"
+        acme_version: 2
+        challenge: dns-01
+        csr: "{{ cert_csr_path }}"
+        dest: "{{ cert_path }}"
+        fullchain_dest: "{{ cert_fullchain_path }}"
+        chain_dest: "{{ cert_chain_path }}"
+        data: "{{ acme_challenge }}"
+        terms_agreed: true
+      when: acme_challenge.challenge_data is defined
+      register: cert_result
+
+    - name: Clean up DNS TXT records at GoDaddy
+      ansible.builtin.uri:
+        url: "https://api.godaddy.com/v1/domains/{{ item.key.split('.')[1:] | join('.') }}/records/TXT/_acme-challenge.{{ item.key.split('.')[0] }}"
+        method: DELETE
+        headers:
+          Authorization: "sso-key {{ godaddy_api_key }}:{{ godaddy_api_secret }}"
+        status_code: [200, 204, 404]
+      loop: "{{ acme_challenge.challenge_data | dict2items }}"
+      when: acme_challenge.challenge_data is defined
+      ignore_errors: true
+
+    - name: Display certificate information
+      ansible.builtin.debug:
+        msg: |
+          Certificate successfully obtained!
+          Certificate: {{ cert_path }}
+          Full chain: {{ cert_fullchain_path }}
+          Private key: {{ cert_key_path }}
+
+          NOTE: This is a STAGING certificate (not trusted by browsers).
+          To obtain a production certificate, change acme_directory to:
+          https://acme-v02.api.letsencrypt.org/directory
+      when: cert_result.changed | default(false)
+
+    - name: Display certificate expiry
+      ansible.builtin.command:
+        cmd: "openssl x509 -in {{ cert_path }} -noout -enddate"
+      when: cert_result.changed | default(false)
+      register: cert_expiry
+      changed_when: false
+
+    - name: Show expiry date
+      ansible.builtin.debug:
+        msg: "{{ cert_expiry.stdout }}"
+      when: cert_expiry.stdout is defined

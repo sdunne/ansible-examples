@@ -1,0 +1,33 @@
+---
+# Example variables file for ACME Let's Encrypt certificate
+# Copy this to vars.yml and customize for your environment
+
+# Domain to obtain certificate for
+domain_name: example.com
+
+# Additional domains (SANs) - optional
+additional_domains:
+  - www.example.com
+  # - api.example.com
+
+# Email for Let's Encrypt notifications
+acme_email: admin@example.com
+
+# GoDaddy API credentials
+# Get these from: https://developer.godaddy.com/keys
+# RECOMMENDED: Use ansible-vault to encrypt this file
+godaddy_api_key: "your_godaddy_api_key_here"
+godaddy_api_secret: "your_godaddy_api_secret_here"
+
+# Alternatively, set these as environment variables:
+# export GODADDY_API_KEY="your_key"
+# export GODADDY_API_SECRET="your_secret"
+
+# Directory to store certificates
+cert_dir: "./certs"
+
+# ACME directory (staging for testing)
+acme_directory: https://acme-staging-v02.api.letsencrypt.org/directory
+
+# For production (uncomment when ready):
+# acme_directory: https://acme-v02.api.letsencrypt.org/directory
