@@ -1,0 +1,70 @@
+# ============================================
+# Standard Ansible Project .gitignore
+# ============================================
+
+# Ansible Builder Artifacts
+ansible-builder.log
+context/
+
+# Sensitive Files - Credentials & Secrets
+environment*.*
+secret*.*
+sdunnerh
+*.pem
+*.key
+vars/*auth*.yml
+vars/*vault*.yml
+vars/*secret*.yml
+
+# Ansible Configuration Files
+ansible.cfg
+ansible.cfg-nav
+ansible-navigator.yml
+ansible-navigator.log
+
+# Collections (typically managed via requirements)
+collections/ansible_collections/
+/collections/ansible_collections/
+
+# Certificates
+ansible/certificates/
+certificates/
+*.crt
+*.csr
+
+# Archives & Binary Artifacts
+*.tar
+*.tar.gz
+*.zip
+bin/
+
+# IDE & Editor Files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# System Files
+.DS_Store
+Thumbs.db
+
+# Python Artifacts (if using Python-based modules)
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+
+# Temporary Files
+*.log
+*.tmp
+file
+
+# Shell Scripts (uncomment if needed for your project)
+# *.sh
+
+# Hidden Files (use with caution - may hide necessary files)
+# .*
+
