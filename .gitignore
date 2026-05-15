@@ -27,8 +27,7 @@ ansible-navigator.log
 *.retry
 
 # Collections (typically managed via requirements)
-collections/ansible_collections/
-/collections/ansible_collections/
+**/collections/ansible_collections/
 
 # Certificates
 ansible/certificates/
