@@ -6,7 +6,7 @@ This playbook obtains SSL/TLS certificates from Let's Encrypt using the ACME pro
 
 1. **Ansible Collections**: Install required collections
    ```bash
-   ansible-galaxy collection install -r requirements.yml
+   ansible-galaxy collection install -r collections/requirements.yml
    ```
 
 2. **GoDaddy API Credentials**: Obtain API key and secret from [GoDaddy Developer Portal](https://developer.godaddy.com/keys)
@@ -17,7 +17,7 @@ This playbook obtains SSL/TLS certificates from Let's Encrypt using the ACME pro
 
 1. **Install dependencies**:
    ```bash
-   ansible-galaxy collection install -r requirements.yml
+   ansible-galaxy collection install -r collections/requirements.yml
    ```
 
 2. **Configure variables**:
