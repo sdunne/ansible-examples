@@ -1,0 +1,7 @@
+ansible-builder.log
+context/
+environment*.*
+secret*.*
+ansible.cfg
+ansible-navigator.yml
+ansible-navigator.log

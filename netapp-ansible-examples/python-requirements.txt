@@ -1,0 +1,3 @@
+# required by the netapp.ontap ansible collection
+requests
+netapp-lib

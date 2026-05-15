@@ -1,0 +1,229 @@
+---
+# Install IIS on Windows Server 2019, import a Let's Encrypt wildcard cert
+# (fullchain.pem + privkey.pem under ./files), and bind HTTPS on the chosen site.
+#
+# Controller: requires openssl (used to build a transient PKCS#12 for Windows).
+# Target: WinRM (CredSSP recommended). Certificate import uses key_storage=machine.
+# HTTPS binding uses appcmd (not microsoft.iis / WebAdministration AddSslCertificate),
+# which fails under WinRM with HRESULT 0x80070520.
+#
+#   ansible-galaxy collection install -r requirements.yml
+#   ansible-playbook playbook.yml -i your_inventory.ini
+#
+# Optional: iis_cert_pfx_password (vault or -e). If unset, a random password is
+# generated on the controller for this run only (PFX is deleted after import).
+
+- name: IIS with TLS from Let's Encrypt PEM files
+  hosts: sdunne-windows
+  gather_facts: true
+
+  vars:
+    iis_site_name: "Default Web Site"
+    https_port: 443
+    # SNI host name for this site (shown in IIS). Use "" only for a true catch-all *:443: binding.
+    https_host_header: wintest.sdunne.net
+    # PKCS#12 friendly name / Windows certificate "Friendly name" (IIS SSL certificate list).
+    iis_wildcard_ssl_cert_name: "*.sdunne.net"
+    cert_pem_path: "{{ playbook_dir }}/files/fullchain.pem"
+    cert_key_path: "{{ playbook_dir }}/files/privkey.pem"
+    remote_cert_dir: "C:\\Windows\\Temp\\ansible-iis-cert"
+    remote_pfx_path: "{{ remote_cert_dir }}\\wildcard_sdunne_net.pfx"
+
+  pre_tasks:
+    - name: Generate ephemeral PKCS#12 password when not supplied
+      when: iis_cert_pfx_password is not defined or iis_cert_pfx_password | string | length == 0
+      run_once: true
+      block:
+        - name: Create random PFX password on controller (openssl)
+          ansible.builtin.command:
+            argv:
+              - openssl
+              - rand
+              - -hex
+              - "24"
+          register: iis_pfx_password_gen
+          changed_when: false
+          delegate_to: localhost
+          connection: local
+
+        - name: Store generated password on first play host
+          ansible.builtin.set_fact:
+            iis_cert_pfx_password: "{{ iis_pfx_password_gen.stdout | trim }}"
+
+    - name: Share PFX password with other play hosts
+      ansible.builtin.set_fact:
+        iis_cert_pfx_password: "{{ hostvars[ansible_play_hosts[0]]['iis_cert_pfx_password'] }}"
+      when: inventory_hostname != ansible_play_hosts[0]
+
+  tasks:
+    - name: Check OpenSSL on Ansible controller
+      ansible.builtin.command:
+        argv:
+          - openssl
+          - version
+      register: openssl_version
+      changed_when: false
+      run_once: true
+      delegate_to: localhost
+      connection: local
+
+    - name: Install IIS Web Server role (and management tools)
+      ansible.windows.win_feature:
+        name: Web-Server
+        state: present
+        include_sub_features: false
+        include_management_tools: true
+      register: win_feature_iis
+
+    - name: Reboot if required after IIS role install
+      ansible.windows.win_reboot:
+      when: win_feature_iis.reboot_required | default(false)
+
+    - name: Allow inbound HTTPS through Windows Firewall
+      community.windows.win_firewall_rule:
+        name: IIS HTTPS (Ansible)
+        localport: "{{ https_port | string }}"
+        action: allow
+        direction: in
+        protocol: tcp
+        state: present
+        enabled: true
+
+    - name: Create temp directory on controller for PKCS#12
+      ansible.builtin.tempfile:
+        state: directory
+        suffix: iis-pfx
+      register: pfx_staging
+      run_once: true
+      delegate_to: localhost
+      connection: local
+
+    - name: Build PKCS#12 from fullchain.pem and privkey.pem
+      ansible.builtin.command:
+        argv:
+          - openssl
+          - pkcs12
+          - -export
+          - -out
+          - "{{ pfx_staging.path }}/wildcard.pfx"
+          - -inkey
+          - "{{ cert_key_path }}"
+          - -in
+          - "{{ cert_pem_path }}"
+          - -passout
+          - "pass:{{ iis_cert_pfx_password }}"
+          - -name
+          - "{{ iis_wildcard_ssl_cert_name }}"
+      args:
+        chdir: "{{ pfx_staging.path }}"
+      changed_when: true
+      run_once: true
+      delegate_to: localhost
+      connection: local
+
+    - name: Ensure remote certificate staging directory exists
+      ansible.windows.win_file:
+        path: "{{ remote_cert_dir }}"
+        state: directory
+
+    - name: Copy PKCS#12 to Windows host
+      ansible.windows.win_copy:
+        src: "{{ pfx_staging.path }}/wildcard.pfx"
+        dest: "{{ remote_pfx_path }}"
+
+    - name: Remove PKCS#12 staging directory on controller (after all hosts copied)
+      ansible.builtin.file:
+        path: "{{ pfx_staging.path }}"
+        state: absent
+      run_once: true
+      delegate_to: localhost
+      connection: local
+
+    - name: Import certificate into LocalMachine\My with machine-private-key storage
+      ansible.windows.win_certificate_store:
+        path: "{{ remote_pfx_path }}"
+        file_type: pkcs12
+        password: "{{ iis_cert_pfx_password }}"
+        key_storage: machine
+        store_location: LocalMachine
+        store_name: My
+        state: present
+      register: cert_import
+
+    - name: Remove PKCS#12 from Windows temp after import
+      ansible.windows.win_file:
+        path: "{{ remote_pfx_path }}"
+        state: absent
+
+    - name: Derive IIS thumbprint from import result
+      ansible.builtin.set_fact:
+        iis_cert_thumbprint: "{{ (cert_import.thumbprints | first | replace(' ', '')) | upper }}"
+
+    - name: Set certificate friendly name for IIS (wildcard *.sdunne.net label)
+      ansible.windows.win_powershell:
+        error_action: stop
+        script: |
+          $thumb = '{{ iis_cert_thumbprint }}'
+          $friendly = '{{ iis_wildcard_ssl_cert_name }}'
+          $store = New-Object System.Security.Cryptography.X509Certificates.X509Store('My', 'LocalMachine')
+          $store.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
+          try {
+            $found = $store.Certificates.Find(
+              [System.Security.Cryptography.X509Certificates.X509FindType]::FindByThumbprint,
+              $thumb,
+              $false)
+            if ($found.Count -lt 1) {
+              throw "Certificate with thumbprint $thumb not found in LocalMachine\My"
+            }
+            $cert = $found[0]
+            if ($cert.FriendlyName -ne $friendly) {
+              $cert.FriendlyName = $friendly
+            }
+          }
+          finally {
+            $store.Close()
+          }
+      when: not ansible_check_mode
+
+    # Binding uses certificateHash = thumbprint of the LE wildcard (*.sdunne.net) cert in My store.
+    # appcmd avoids WebAdministration AddSslCertificate (HRESULT 0x80070520 under WinRM).
+    - name: Configure IIS HTTPS binding via appcmd
+      ansible.windows.win_powershell:
+        error_action: stop
+        script: |
+          $ErrorActionPreference = 'Stop'
+          $appcmd = Join-Path $env:windir 'System32\inetsrv\appcmd.exe'
+          if (-not (Test-Path -LiteralPath $appcmd)) {
+            throw "appcmd.exe not found at $appcmd. Is IIS installed?"
+          }
+
+          $siteName = '{{ iis_site_name }}'
+          $port = {{ https_port | int }}
+          # appcmd expects a hex thumbprint without spaces; lowercase avoids IIS UI quirks.
+          $thumb = '{{ iis_cert_thumbprint | lower }}'
+          $hostHeader = '{{ https_host_header }}'.Trim()
+
+          if ($hostHeader.Length -gt 0) {
+            $bindingInfo = "*:${port}:$hostHeader"
+            $sslFlags = '1'
+          }
+          else {
+            $bindingInfo = "*:${port}:"
+            $sslFlags = '0'
+          }
+
+          $bindingSelector = "[protocol='https',bindingInformation='$bindingInfo']"
+
+          $removeArg = "/-bindings.$bindingSelector"
+          & $appcmd set site "/site.name:$siteName" $removeArg 2>$null
+
+          $addArg = "/+bindings.[protocol='https',bindingInformation='$bindingInfo',sslFlags='$sslFlags',certificateHash='$thumb',certificateStoreName='My']"
+          & $appcmd set site "/site.name:$siteName" $addArg
+          if ($LASTEXITCODE -ne 0) {
+            throw "appcmd add HTTPS binding failed with exit code $LASTEXITCODE"
+          }
+          # Do not use appcmd "set site ... /bindings.[...].certificateHash" — IIS 10 / appcmd
+          # rejects that attribute path (exit 1413 / unknown attribute). Cert must be on the
+          # /+bindings.[...] line above. If IIS Manager still looks empty, close/reopen it or
+          # run: iisreset /noforce
+      when: not ansible_check_mode

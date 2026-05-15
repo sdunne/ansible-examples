@@ -1,0 +1,13 @@
+---
+- name: Get list of running services on Windows
+  hosts: all 
+  gather_facts: false # Not strictly necessary for this task, but can be set to false if only running specific commands
+
+  tasks:
+    - name: Execute PowerShell command to get running services
+      ansible.windows.win_shell: Get-Service | Where-Object {$_.Status -eq 'Running'} | Select-Object -ExpandProperty Name
+      register: running_services_output
+
+    - name: Display the list of running services
+      debug:
+        msg: "Running services: {{ running_services_output.stdout_lines }}"

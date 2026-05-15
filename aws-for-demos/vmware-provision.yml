@@ -1,0 +1,60 @@
+---
+- hosts: localhost
+  gather_facts: true
+
+  vars_files:
+    - secrets.yml
+
+  vars:
+    vm_name: rhel9test2
+    vm_cpus: 2
+    memsize_MiB: 4096
+
+  tasks:
+    - name: Provision a VM
+      ansible.builtin.import_role:
+        name: cloud.vmware_ops.provision_vm
+      vars:
+        provision_vm_hostname: "{{ vm_hostname }}"
+        provision_vm_username: "{{ vm_username }}"
+        provision_vm_password: "{{ vm_password }}"
+#        provision_vm_validate_certs: false
+        provision_vm_cluster: "Cluster-1"
+        provision_vm_folder: "{{ vm_folder }}"
+        provision_vm_datacenter: "SDDC-Datacenter"
+        provision_vm_name: "{{ vm_name }}"
+        provision_vm_template: "{{ vm_template }}"
+#        provision_vm_port: "8989"
+#        provision_vm_disk:
+#        - size_gb: 10
+#          type: thin
+#          datastore: "LocalDS_0"
+        provision_vm_hardware:
+          hotadd_memory: true
+          memory_mb: "{{ memsize_MiB | default(omit) }}"
+          hotadd_cpu: true
+          num_cpus: "{{ vm_cpus | default(omit)  }}" 
+#        provision_vm_guest_id: "rhel9_64Guest"
+        provision_vm_state: poweredon 
+
+    - name: Display ticket number REQ from ServiceNow
+      debug:
+        var: ticket_number
+
+    - name: Update (close) catalog request
+      servicenow.itsm.catalog_request:
+#        instance:
+#          host: "{{ sn_host }}"
+#          username: "{{ sn_user }}"
+#          password: "{{ sn_password }}"
+        state: present
+        number: "{{ ticket_number }}"
+        request_state: "{{ req_state | default('closed_complete') }}"
+        #assignment_group: IT Support
+        #work_notes: Started processing the request
+      register: request_update
+
+    - name: Debug ServiceNow Request Update
+      ansible.builtin.debug:
+        var: request_update
+#        verbosity: 2

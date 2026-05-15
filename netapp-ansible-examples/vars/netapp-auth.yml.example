@@ -1,0 +1,18 @@
+# variable used to override module defaults for netapp.ontap collection,
+# so the authentication information does not need to be added to every
+# task.  after setting this variable, set the module defaults in the
+# playbook using the following:
+#
+# module_defaults:
+#   group/netapp.ontap.netapp_ontap: '{{ netapp_auth }}'
+#
+# https://netapp.io/2022/02/15/ansible-module-defaults-the-ansible-specific-alternative-to-yaml-aliases/
+---
+netapp_auth:
+  hostname: my-netapp.example.org
+  username: admin
+  password: '{{ vault_netapp_admin_password }}'
+  https: true
+  validate_certs: false
+
+...

@@ -1,0 +1,17 @@
+---
+- name: Configure TF instances
+  hosts: all
+
+  tasks:
+    - name: Install firewalld
+      ansible.builtin.dnf:
+        name: firewalld
+        state: present
+
+    - name: Start firewalld
+      ansible.builtin.service:
+        name: firewalld
+        enabled: true
+        state: started
+
+...

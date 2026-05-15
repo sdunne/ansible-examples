@@ -1,0 +1,39 @@
+---
+- name: Delete a vSphere VM in vCenter
+  hosts: localhost
+  gather_facts: false
+
+  vars:
+    vm_name: "sdunne-test1"
+
+  tasks:
+    - name: Look up the VM called vm_name
+      vmware.vmware_rest.vcenter_vm_info:
+        filter_names:
+          - "{{ vm_name }}"
+      register: search_result
+
+    - name: Collect info about the VM
+      vmware.vmware_rest.vcenter_vm_info:
+        vm: '{{ search_result.value[0].vm }}'
+      register: target_vm_info
+
+    - name: Display VM info for power state
+      ansible.builtin.debug:
+        msg: "{{ target_vm_info }}"
+
+    - name: Power off the vm
+      vmware.vmware_rest.vcenter_vm_power:
+        state: stop
+        vm: "{{ target_vm_info.id }}"
+      when: target_vm_info.value.power_state == "POWERED_ON"
+
+    - name: Pause for 3 seconds
+      ansible.builtin.pause:
+        seconds: 3
+
+    - name: Delete VM
+      vmware.vmware_rest.vcenter_vm:
+        vm: "{{ target_vm_info.id }}"
+        state: absent
+      register: result

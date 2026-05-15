@@ -1,0 +1,35 @@
+---
+- hosts: localhost
+  gather_facts: true
+
+  vars_files:
+    - secrets.yml
+
+  vars:
+    vm_name: rhel9test
+
+  tasks:
+    - name: VMware hotadd resources
+      ansible.builtin.import_role:
+        name: cloud.vmware_ops.provision_vm
+      vars:
+        provision_vm_hostname: "{{ vm_hostname }}"
+        provision_vm_username: "{{ vm_username }}"
+        provision_vm_password: "{{ vm_password }}"
+#        provision_vm_validate_certs: false
+        provision_vm_cluster: "Cluster-1"
+        provision_vm_folder: "{{ vm_folder }}"
+        provision_vm_datacenter: "SDDC-Datacenter"
+        provision_vm_name: "{{ vm_name }}"
+#        provision_vm_template: "{{ vm_template }}"
+#        provision_vm_port: "8989"
+#        provision_vm_disk:
+#        - size_gb: 10
+#          type: thin
+#          datastore: "LocalDS_0"
+        provision_vm_hardware:
+          hotadd_memory: true
+          memory_mb: "{{ vm_memory_mb | default(omit) }}"
+          hotadd_cpu: true
+          num_cpus: "{{ vm_num_cpus | default(omit) }}"
+

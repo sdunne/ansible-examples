@@ -1,0 +1,17 @@
+---
+- name: Simple win_ping test
+  hosts: all
+
+  tasks:
+    - name: Simple win_ping to target Windows host
+      ansible.windows.win_ping:
+
+    - name: Setup
+      ansible.builtin.setup:
+      register: facts
+
+    - name: show facts
+      debug:
+        var: facts
+
+...

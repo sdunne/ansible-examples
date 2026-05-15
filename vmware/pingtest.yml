@@ -1,0 +1,10 @@
+---
+- name: Ping test of hosts
+  hosts: sdunne-test1
+  gather_facts: false
+  become: true
+
+  tasks:
+    - name: Ping
+      ansible.builtin.ping:
+      ignore_errors: true

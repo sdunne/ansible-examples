@@ -1,0 +1,17 @@
+- name: Remove an EN instance from AAP
+  hosts: localhost
+
+  environment:
+    CONTROLLER_HOST: "{{ controller_hostname }}"
+    CONTROLLER_OAUTH_TOKEN: "{{ controller_token }}"
+    CONTROLLER_VERIFY_SSL: false
+
+  vars_files:
+    - secrets.yml
+
+  tasks:
+  - name: Remove instance
+    ansible.controller.instance:
+      hostname: ec2-18-220-237-70.us-east-2.compute.amazonaws.com
+      node_state: deprovisioning
+

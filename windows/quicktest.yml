@@ -1,0 +1,11 @@
+---
+- name: Quick test of connectivity to Windows host
+  hosts: sdunne-windows
+
+  vars_files:
+    - secrets.yml
+
+  tasks:
+    - name: Quick win_ping test
+      ansible.windows.win_ping:
+

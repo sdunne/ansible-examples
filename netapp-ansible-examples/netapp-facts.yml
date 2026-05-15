@@ -1,0 +1,36 @@
+---
+- name: Gather ONTAP facts
+  hosts: localhost
+  gather_facts: false
+
+#  module_defaults: # disable section for AAP use
+#    group/netapp.ontap.netapp_ontap: '{{ netapp_auth }}'
+  module_defaults: # enable for AAP use
+    group/netapp.ontap.netapp_ontap: 
+      hostname: "{{ hostname }}"
+      username: "{{ username }}"
+      password: "{{ password }}"
+      https: true
+      validate_certs: false
+
+#  vars_files: # disable section for AAP use
+#    - vars/netapp-auth.yml
+#    - vars/vault.yml
+
+  tasks:
+    - name: Get ONTAP cluster node info
+      netapp.ontap.na_ontap_rest_info:
+        gather_subset:
+          - cluster/nodes
+          - license_info
+          - disk_info
+          - aggregate_info
+          - ntp_server_info
+      register: _ontap_rest_info
+
+    - name: Display ONTAP facts
+      ansible.builtin.debug:
+        var: _ontap_rest_info.ontap_info
+        
+
+...

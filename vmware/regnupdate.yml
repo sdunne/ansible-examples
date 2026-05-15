@@ -1,0 +1,52 @@
+---
+- name: Register and update new VM
+  hosts: sdunne-test1
+  become: true
+
+  vars_files:
+    - secrets.yml
+
+  tasks:
+    - name: Add good hostname
+      ansible.builtin.hostname:
+        name: sdunne-test1.oevm.sdunne.net
+        use: systemd
+
+    - name: Register with Red Hat Subscription Management
+      community.general.redhat_subscription:
+        state: present
+        username: "{{ rhsm_username }}"
+        password: "{{ rhsm_password }}"
+      ignore_errors: true
+
+    - name: Update all packages with dnf
+      ansible.builtin.dnf:
+        name: '*'
+        state: latest
+        #      tags: [ never, update ]
+
+    - name: Install required packages
+      ansible.builtin.package:
+        name: 
+          - scap-security-guide
+          - openscap-scanner
+          - python3-pip
+            #          - unzip
+        state: present
+
+    - name: Use pip to install python packages for aws
+      ansible.builtin.pip:
+        name:
+          - boto3
+          - botocore
+        state: present
+
+    - name: Copy openscap report to S3 bucket
+      amazon.aws.s3_object:
+        access_key: "{{ s3_access_key }}"
+        secret_key: "{{ s3_secret_key }}"
+        bucket: sdtransfer 
+        object: report-post.html
+        src: /home/sdunne/report-post.html
+        mode: put
+      tags: never

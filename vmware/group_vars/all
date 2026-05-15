@@ -1,0 +1,4 @@
+# file group_vars/all
+#
+#ansible_user: lab-user
+#ansible_ssh_common_args: '-o ConnectTimeout=20 -o ProxyCommand="ssh -W %h:%p -q lab-user@bastion.qpgbd.dynamic.opentlc.com"'

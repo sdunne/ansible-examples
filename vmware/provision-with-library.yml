@@ -1,0 +1,95 @@
+---
+- name: Provision VMware VM
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    vm_folder: "sandbox-6mt5s"
+    vm_name: "sdunne-test1"
+    source_vm: "sdunne-rhel9"
+    vm_template: "sdunne-rhel9-tmp"
+    vm_cpus: 2
+    memsize_MiB: 2048
+    vm_cluster: "Cluster-1"
+
+  tasks:
+    - name: Get source VM info
+      vmware.vmware_rest.vcenter_vm_info: 
+        filter_names:
+          - "{{ source_vm }}" 
+      register: vm_info
+
+    - name: Get source VM moid
+      ansible.builtin.debug:
+        var: vm_info
+#        msg: "{{ vm_info.value[0].vm }}"
+
+    - name: Gather cluster info
+      vmware.vmware_rest.vcenter_cluster_info:
+        filter_names:
+          - "{{ vm_cluster }}"
+      register: cluster_info
+
+    - name: Show cluster info
+      ansible.builtin.debug:
+        var: cluster_info
+
+    - name: Gather datastore info
+      vmware.vmware_rest.vcenter_datastore_info:
+      register: datastore_info
+
+    - name: Show datastore info
+      ansible.builtin.debug:
+        var: datastore_info
+
+    - name: Find the vm folder
+      vmware.vmware_rest.vcenter_folder_info:
+        filter_names:
+          - "{{ vm_folder }}"
+      register: folder_info
+
+    - name: Show folder info
+      ansible.builtin.debug:
+        var: folder_info
+
+    - name: Get Content Library config
+      vmware.vmware_rest.content_locallibrary_info:
+      register: my_library
+      retries: 100
+      delay: 3
+      until: my_library is not failed
+
+    - name: Show Content Library info
+      ansible.builtin.debug:
+        var: my_library
+
+    - name: Get content library id
+      vmware.vmware_rest.content_library_item_info:
+        library_id: "{{ my_library.value[7].id }}"
+      register: my_templates
+
+    - name: Show templates in Content Library
+      ansible.builtin.debug:
+        var: my_templates
+
+    - name: Clone VM
+      vmware.vmware_rest.vcenter_vm:
+        placement:
+          cluster: "{{ cluster_info.value[0].cluster }}"
+          folder: "{{ folder_info.value[0].folder }}"
+        source: "{{ vm_info.value[0].vm }}" 
+        name: sdunne-test3
+        state: clone
+
+#    - name: Deploy a new VM based on the template
+#      vmware.vmware_rest.vcenter_vmtemplate_libraryitems:
+#        name: "{{ vm_name }}"
+#        library: "{{ my_library.value[1].id }}"
+#        placement:
+#          cluster: "{{ cluster_info.value[0].cluster }}"
+#          folder: "{{ folder_info.value[0].folder }}"
+#          datastore: datastore-48
+#        state: deploy
+#      register: vm_output
+#      loop: "{{ server_names }}"
+#      ignore_errors: true

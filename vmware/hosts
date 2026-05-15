@@ -1,0 +1,6 @@
+# bastion goes here
+bastion-ncpqz.ncpqz.dynamic.opentlc.com ansible_user=lab-user ansible_ssh_key_file=~/.ssh/id_rsa
+#nuc5 ansible_host=192.168.186.79 ansible_ssh_private_key_file=~/.ssh/sdunnerh ansible_user=sdunne
+sdunne-test1 ansible_host=192.168.166.13 ansible_user=sdunne ansible_ssh_private_key_file=~/.ssh/id_rsa
+sdunne-test3 ansible_host=192.168.1.11 ansible_ssh_private_key_file=~/.ssh/id_rsa
+

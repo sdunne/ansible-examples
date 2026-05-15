@@ -1,0 +1,13 @@
+---
+- name: Stop and start IIS service
+  hosts: all
+  vars:
+    service_state: started
+
+  tasks:
+    - name: Change state of IIS service
+      ansible.windows.win_service:
+        name: W3Svc
+        state: "{{ service_state }}"
+
+...

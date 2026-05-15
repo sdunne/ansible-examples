@@ -1,0 +1,89 @@
+---
+- name: Provision VMware VM
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    vm_folder: "sandbox-9zqkm"
+    vm_name: "sdunne-test1"
+    source_vm: "sdunne-rhel9"
+    vm_cpus: 4
+    memsize_MiB: 4096
+    vm_cluster: "Cluster-1"
+    ticket_number: "SNOW-ticket"
+
+  tasks:
+    - name: Get source VM info
+      vmware.vmware_rest.vcenter_vm_info:
+        filter_names:
+          - "{{ source_vm }}"
+      register: vm_info
+
+    - name: Get source VM moid
+      ansible.builtin.debug:
+        var: vm_info
+#        msg: "{{ vm_info.value[0].vm }}"
+
+    - name: Gather cluster info
+      vmware.vmware_rest.vcenter_cluster_info:
+        filter_names:
+          - "{{ vm_cluster }}"
+      register: cluster_info
+
+    - name: Show cluster info
+      ansible.builtin.debug:
+        var: cluster_info
+
+    - name: Gather datastore info
+      vmware.vmware_rest.vcenter_datastore_info:
+      register: datastore_info
+
+    - name: Show datastore info
+      ansible.builtin.debug:
+        var: datastore_info
+
+    - name: Find the vm folder
+      vmware.vmware_rest.vcenter_folder_info:
+        filter_names:
+          - "{{ vm_folder }}"
+      register: folder_info
+
+    - name: Show folder info
+      ansible.builtin.debug:
+        var: folder_info
+
+    - name: Clone VM
+      vmware.vmware_rest.vcenter_vm:
+        placement:
+          cluster: "{{ cluster_info.value[0].cluster }}"
+          folder: "{{ folder_info.value[0].folder }}"
+        source: "{{ vm_info.value[0].vm }}"
+        name: "{{ vm_name }}"
+        state: clone
+        power_on: false
+      register: newvm_info
+
+    - name: Show VM info
+      ansible.builtin.debug:
+        msg: "{{ newvm_info }}"
+
+    - name: Set CPU hardware
+      vmware.vmware_rest.vcenter_vm_hardware_cpu:
+        vm: "{{ newvm_info.id }}"
+        count: "{{ vm_cpus }}"
+        hot_add_enabled: true
+
+    - name: Set memory hardware
+      vmware.vmware_rest.vcenter_vm_hardware_memory:
+        vm: "{{ newvm_info.id }}"
+        size_MiB: "{{ memsize_MiB }}"
+        hot_add_enabled: true
+
+    - name: Turn on VM
+      vmware.vmware_rest.vcenter_vm_power:
+        state: start
+        vm: "{{ newvm_info.id }}"
+
+    - name: Display SNOW ticket number
+      ansible.builtin.debug:
+        var: ticket_number

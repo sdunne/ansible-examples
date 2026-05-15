@@ -1,0 +1,39 @@
+---
+- name: Set power state of VMware VM in vCenter
+  hosts: localhost
+  gather_facts: false
+
+  vars:
+    vm_name: "sdunne-rhel9"
+    vmpowerstate: "reset"
+
+  tasks:
+    - name: Look up the VM called some_vm in the inventory
+      vmware.vmware_rest.vcenter_vm_info:
+        filter_names:
+          - "{{ vm_name }}"
+      register: search_result
+
+    - name: Collect info about the VM
+      vmware.vmware_rest.vcenter_vm_info:
+        vm: '{{ search_result.value[0].vm }}'
+      register: target_vm_info
+
+    - name: Power off the vm
+      vmware.vmware_rest.vcenter_vm_guest_power:
+        state: shutdown
+        vm: "{{ target_vm_info.id }}"
+      when: vmpowerstate == "off"
+
+    - name: Power on the vm
+      vmware.vmware_rest.vcenter_vm_power:
+        state: start
+        vm: "{{ target_vm_info.id }}"
+      when: vmpowerstate == "on"
+
+    - name: Reset power of the vm
+      vmware.vmware_rest.vcenter_vm_power:
+        state: reset
+        vm: "{{ target_vm_info.id }}"
+      when: vmpowerstate == "reset"
+

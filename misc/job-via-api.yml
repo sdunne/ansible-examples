@@ -1,0 +1,24 @@
+---
+- name: Launch job template via API
+  hosts: localhost
+
+  tasks:
+    - name: Launch job template via API
+      ansible.builtin.uri:
+        url: https://rhel8con/api/v2/job_templates/ping%20local%20servers++Default/launch/
+        method: POST
+        force_basic_auth: yes # remove if using token
+        url_username: admin # remove if using token
+        url_password: redhat123 # remove if using token
+        validate_certs: false
+        status_code: [200, 201, 202]
+        return_content: true
+        headers:
+          Content-Type: application/json
+        #  Authorization: "Bearer A7Z6bxrznO0kIcOyxkrYyEUT2DY5LX"
+        body_format: json # remove if no body
+        body:
+          limit: nuc5
+          extra_vars:
+            test_var: testing
+

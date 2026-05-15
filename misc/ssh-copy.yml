@@ -1,0 +1,23 @@
+---
+- name: Configure host for secure ansible service account
+  hosts: rhel9test
+  become: true
+
+  tasks:
+    - name: Add ansible service account user
+      ansible.builtin.user:
+        name: ansible
+        group: wheel
+
+    - name: Add ssh key for login to ansible service account
+      ansible.builtin.authorized_key:
+        user: ansible
+        state: present
+        key: "{{ lookup('file', 'files/id_rsa.pub') }}"
+
+    - name: Add ansible service account to sudoers
+      community.general.sudoers:
+        name: allow-ansible
+        state: present
+        user: ansible
+        commands: ALL

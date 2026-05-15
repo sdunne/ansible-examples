@@ -1,0 +1,16 @@
+---
+- name: Remove IIS
+  hosts: all
+
+  tasks:
+    - name: Stop IIS service
+      ansible.windows.win_service:
+        name: W3Svc
+        state: stopped
+
+    - name: Remove IIS
+      ansible.windows.win_feature:
+        name: Web-Server
+        state: absent
+
+...
