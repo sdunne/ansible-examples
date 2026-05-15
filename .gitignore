@@ -15,6 +15,7 @@ sdunnerh
 vars/*auth*.yml
 vars/*vault*.yml
 vars/*secret*.yml
+vars.yml
 
 # Ansible Configuration Files
 ansible.cfg
@@ -22,7 +23,11 @@ ansible.cfg-nav
 ansible-navigator.yml
 ansible-navigator.log
 
+# Ansible
+*.retry
+
 # Collections (typically managed via requirements)
+collections/
 collections/ansible_collections/
 /collections/ansible_collections/
 
