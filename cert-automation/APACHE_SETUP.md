@@ -47,7 +47,7 @@ ansible-navigator run install_apache_https.yml -m stdout --ee false
 
 1. **Installs packages**: Apache (`httpd`), `mod_ssl`, and `firewalld` on RHEL 9
 2. **Creates document root** at `/var/www/test.sdunne.net`
-3. **Deploys sample HTML** (from `index.html.j2`) with a modern, responsive design
+3. **Deploys sample HTML** (from `templates/index.html.j2`) with a modern, responsive design
 4. **Copies SSL certificates** from `./certs/` to the server:
    - Certificate: `/etc/pki/tls/certs/test.sdunne.net-fullchain.crt`
    - Private Key: `/etc/pki/tls/private/test.sdunne.net.key`
@@ -134,7 +134,7 @@ Or create a cron job to automate this process.
 
 ### Web Content
 
-To customize the website content, edit the `index.html.j2` template file. This is a Jinja2 template that supports Ansible variables:
+To customize the website content, edit the `templates/index.html.j2` template file. This is a Jinja2 template that supports Ansible variables:
 - `{{ domain_name }}` - The domain name from the playbook
 - `{{ ansible_date_time.iso8601 }}` - The deployment timestamp
 
