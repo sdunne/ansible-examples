@@ -1,0 +1,200 @@
+---
+- name: Install Apache with HTTPS configuration on test.sdunne.net
+  hosts: test.sdunne.net
+  become: true
+  vars:
+    domain_name: test.sdunne.net
+    cert_source_dir: "./certs"
+    cert_dest_dir: "/etc/pki/tls/certs"
+    key_dest_dir: "/etc/pki/tls/private"
+    document_root: "/var/www/{{ domain_name }}"
+
+  tasks:
+    - name: Install Apache (httpd), mod_ssl, and firewalld
+      ansible.builtin.dnf:
+        name:
+          - httpd
+          - mod_ssl
+          - firewalld
+        state: present
+
+    - name: Create document root directory
+      ansible.builtin.file:
+        path: "{{ document_root }}"
+        state: directory
+        owner: apache
+        group: apache
+        mode: '0755'
+
+    - name: Deploy sample HTML content
+      ansible.builtin.template:
+        src: index.html.j2
+        dest: "{{ document_root }}/index.html"
+        owner: apache
+        group: apache
+        mode: '0644'
+
+    - name: Copy SSL certificate files to server
+      ansible.builtin.copy:
+        src: "{{ cert_source_dir }}/{{ domain_name }}-fullchain.crt"
+        dest: "{{ cert_dest_dir }}/{{ domain_name }}-fullchain.crt"
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Copy SSL certificate chain
+      ansible.builtin.copy:
+        src: "{{ cert_source_dir }}/{{ domain_name }}-chain.crt"
+        dest: "{{ cert_dest_dir }}/{{ domain_name }}-chain.crt"
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Copy SSL private key to server
+      ansible.builtin.copy:
+        src: "{{ cert_source_dir }}/{{ domain_name }}.key"
+        dest: "{{ key_dest_dir }}/{{ domain_name }}.key"
+        owner: root
+        group: root
+        mode: '0600'
+
+    - name: Create Apache VirtualHost configuration for HTTP (redirect to HTTPS)
+      ansible.builtin.copy:
+        content: |
+          <VirtualHost *:80>
+              ServerName {{ domain_name }}
+
+              # Redirect all HTTP traffic to HTTPS
+              RewriteEngine On
+              RewriteCond %{HTTPS} off
+              RewriteRule ^(.*)$ https://%{HTTP_HOST}$1 [R=301,L]
+
+              ErrorLog /var/log/httpd/{{ domain_name }}-error.log
+              CustomLog /var/log/httpd/{{ domain_name }}-access.log combined
+          </VirtualHost>
+        dest: "/etc/httpd/conf.d/{{ domain_name }}.conf"
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Create Apache VirtualHost configuration for HTTPS
+      ansible.builtin.copy:
+        content: |
+          <VirtualHost *:443>
+              ServerName {{ domain_name }}
+              DocumentRoot {{ document_root }}
+
+              # SSL Engine
+              SSLEngine on
+              SSLCertificateFile {{ cert_dest_dir }}/{{ domain_name }}-fullchain.crt
+              SSLCertificateKeyFile {{ key_dest_dir }}/{{ domain_name }}.key
+              SSLCertificateChainFile {{ cert_dest_dir }}/{{ domain_name }}-chain.crt
+
+              # Modern SSL configuration
+              SSLProtocol all -SSLv3 -TLSv1 -TLSv1.1
+              SSLCipherSuite ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384
+              SSLHonorCipherOrder off
+              SSLSessionTickets off
+
+              # HSTS (optional - uncomment to enable)
+              # Header always set Strict-Transport-Security "max-age=63072000"
+
+              <Directory {{ document_root }}>
+                  Options -Indexes +FollowSymLinks
+                  AllowOverride All
+                  Require all granted
+              </Directory>
+
+              ErrorLog /var/log/httpd/{{ domain_name }}-ssl-error.log
+              CustomLog /var/log/httpd/{{ domain_name }}-ssl-access.log combined
+          </VirtualHost>
+        dest: "/etc/httpd/conf.d/{{ domain_name }}-ssl.conf"
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Enable mod_rewrite (for HTTP to HTTPS redirect)
+      ansible.builtin.lineinfile:
+        path: /etc/httpd/conf.modules.d/00-base.conf
+        line: 'LoadModule rewrite_module modules/mod_rewrite.so'
+        create: yes
+        mode: '0644'
+
+    - name: Check if default ssl.conf exists
+      ansible.builtin.stat:
+        path: /etc/httpd/conf.d/ssl.conf
+      register: default_ssl_conf
+
+    - name: Disable default SSL configuration (conflicts with our custom config)
+      ansible.builtin.command:
+        cmd: mv /etc/httpd/conf.d/ssl.conf /etc/httpd/conf.d/ssl.conf.disabled
+      when: default_ssl_conf.stat.exists
+
+    - name: Create SSL Listen configuration
+      ansible.builtin.copy:
+        content: |
+          # SSL Listen configuration
+          # This file provides the Listen directive that was in the default ssl.conf
+          Listen 443 https
+        dest: /etc/httpd/conf.d/00-ssl-listen.conf
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Enable and start firewalld service
+      ansible.builtin.systemd:
+        name: firewalld
+        enabled: true
+        state: started
+
+    - name: Configure firewall for HTTP and HTTPS
+      ansible.posix.firewalld:
+        service: "{{ item }}"
+        permanent: true
+        state: enabled
+        immediate: true
+      loop:
+        - http
+        - https
+
+    - name: Test Apache configuration
+      ansible.builtin.command:
+        cmd: httpd -t
+      register: httpd_test
+      changed_when: false
+      failed_when: "'Syntax OK' not in httpd_test.stderr"
+
+    - name: Enable and start Apache service
+      ansible.builtin.systemd:
+        name: httpd
+        enabled: true
+        state: restarted
+
+    - name: Wait for Apache to be ready
+      ansible.builtin.wait_for:
+        port: 443
+        delay: 2
+        timeout: 30
+
+    - name: Display completion message
+      ansible.builtin.debug:
+        msg: |
+          ========================================
+          Apache HTTPS Configuration Complete!
+          ========================================
+
+          HTTPS URL: https://{{ domain_name }}
+          HTTP URL:  http://{{ domain_name }} (redirects to HTTPS)
+
+          Certificate Files:
+            - Certificate: {{ cert_dest_dir }}/{{ domain_name }}-fullchain.crt
+            - Private Key: {{ key_dest_dir }}/{{ domain_name }}.key
+            - Chain: {{ cert_dest_dir }}/{{ domain_name }}-chain.crt
+
+          Logs:
+            - Error Log: /var/log/httpd/{{ domain_name }}-ssl-error.log
+            - Access Log: /var/log/httpd/{{ domain_name }}-ssl-access.log
+
+          NOTE: If using staging certificates, your browser will show
+          a security warning. Use production certificates for real sites.
+          ========================================

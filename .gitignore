@@ -16,6 +16,7 @@ vars/*auth*.yml
 vars/*vault*.yml
 vars/*secret*.yml
 vars.yml
+hosts
 
 # Ansible Configuration Files
 ansible.cfg
