@@ -27,6 +27,8 @@
 
     # Email for Let's Encrypt account
     acme_email: admin@example.com
+  vars_files:
+    - secrets.yml
 
   tasks:
     - name: Ensure certificate directory exists
@@ -61,10 +63,10 @@
         account_key_src: "{{ account_key_path }}"
         acme_directory: "{{ acme_directory }}"
         acme_version: 2
+        state: present
         terms_agreed: true
         contact:
           - "mailto:{{ acme_email }}"
-      when: account_key.changed
 
     - name: Request certificate and retrieve DNS challenge
       community.crypto.acme_certificate:
@@ -79,6 +81,7 @@
         chain_dest: "{{ cert_chain_path }}"
         terms_agreed: true
         remaining_days: 30
+        modify_account: false
       register: acme_challenge
 
     - name: Display challenge information
@@ -104,23 +107,12 @@
 
     - name: Wait for DNS propagation
       ansible.builtin.pause:
-        seconds: 60
+        seconds: 120
         prompt: "Waiting for DNS records to propagate..."
       when: acme_challenge.challenge_data is defined
 
-    - name: Verify DNS TXT record exists
-      ansible.builtin.command:
-        cmd: "dig +short TXT _acme-challenge.{{ item.key }} @8.8.8.8"
-      loop: "{{ acme_challenge.challenge_data | dict2items }}"
-      when: acme_challenge.challenge_data is defined
-      register: dns_verify
-      changed_when: false
-
-    - name: Display DNS verification results
-      ansible.builtin.debug:
-        msg: "DNS TXT record for {{ item.item.key }}: {{ item.stdout }}"
-      loop: "{{ dns_verify.results }}"
-      when: dns_verify.results is defined
+    # DNS verification removed - dig not available in execution environment
+    # The ACME protocol will verify DNS records during challenge validation
 
     - name: Complete ACME challenge validation
       community.crypto.acme_certificate:
@@ -135,6 +127,7 @@
         chain_dest: "{{ cert_chain_path }}"
         data: "{{ acme_challenge }}"
         terms_agreed: true
+        modify_account: false
       when: acme_challenge.challenge_data is defined
       register: cert_result
 
