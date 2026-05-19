@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ domain_name }} - IIS on Windows Server 2019</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <h1>🔒 Welcome to {{ domain_name }}</h1>
+
+        <div class="status">
+            <strong>✅ IIS Web Server is Running with HTTPS!</strong>
+        </div>
+
+        <div class="info">
+            <h2>Server Information</h2>
+            <p><strong>Hostname:</strong> {{ domain_name }}</p>
+            <p><strong>Web Server:</strong> Microsoft IIS on Windows Server 2019</p>
+            <p><strong>Website Name:</strong> {{ site_name }}</p>
+            <p><strong>Protocol:</strong> HTTPS (SSL/TLS Enabled)</p>
+            <p><strong>HTTP Port:</strong> {{ http_port }}</p>
+            <p><strong>HTTPS Port:</strong> {{ https_port }}</p>
+            <p><strong>Deployed:</strong> {{ ansible_date_time.iso8601 }}</p>
+        </div>
+
+        <div class="info">
+            <h2>System Details</h2>
+            <p><strong>Operating System:</strong> {{ ansible_os_family }} {{ ansible_distribution }} {{ ansible_distribution_version }}</p>
+            <p><strong>Architecture:</strong> {{ ansible_architecture }}</p>
+            <p><strong>Hostname:</strong> {{ ansible_hostname }}</p>
+            <p><strong>IP Address:</strong> {{ ansible_default_ipv4.address | default('N/A') }}</p>
+        </div>
+
+        <div class="info">
+            <h2>SSL/TLS Certificate</h2>
+            <p><strong>Certificate Type:</strong> Self-Signed</p>
+            <p><strong>Friendly Name:</strong> {{ cert_friendly_name }}</p>
+            <p><strong>Valid For:</strong> {{ cert_validity_days }} days</p>
+            <p><strong>⚠️ Note:</strong> Self-signed certificates will show a browser warning. This is normal for development/testing environments.</p>
+        </div>
+
+        <div class="info">
+            <h2>IIS Configuration</h2>
+            <p><strong>Document Root:</strong> {{ document_root }}</p>
+            <p><strong>Application Pool:</strong> {{ site_name }}AppPool</p>
+            <p><strong>.NET Runtime:</strong> v4.0</p>
+            <p><strong>Pipeline Mode:</strong> Integrated</p>
+        </div>
+
+        <div class="info">
+            <h2>About This Deployment</h2>
+            <p>This IIS website was automatically deployed using Ansible automation. The web server is configured with HTTPS using a self-signed SSL certificate and includes sample content to verify successful installation.</p>
+            <p>Features installed include:</p>
+            <ul>
+                <li>IIS Web Server with common HTTP features</li>
+                <li>Static content serving</li>
+                <li>HTTP logging and diagnostics</li>
+                <li>Dynamic and static compression</li>
+                <li>Basic and Windows authentication support</li>
+                <li>ASP.NET 4.5 support</li>
+            </ul>
+        </div>
+
+        <div class="footer">
+            <p>🤖 Deployed with Ansible | Powered by Microsoft IIS</p>
+        </div>
+    </div>
+</body>
+</html>

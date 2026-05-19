@@ -1,0 +1,23 @@
+# Ansible Vault password files
+.vault_pass
+*.vault_pass
+vault_password
+
+# Unencrypted vault files
+vault.yml.unencrypted
+
+# Sensitive files
+secrets.yml.unencrypted
+*.pem
+*.key
+
+# Ansible temporary files
+*.retry
+.ansible/
+
+# Certificate files (if they contain private keys)
+certs/*.key
+
+# Logs
+*.log
+ansible-navigator.log

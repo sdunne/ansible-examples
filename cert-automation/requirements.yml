@@ -1,0 +1,21 @@
+---
+collections:
+  # Microsoft IIS collection for managing IIS web server
+  - name: microsoft.iis
+    version: ">=1.1.0"
+
+  # Community Windows collection for additional Windows modules
+  - name: community.windows
+    version: ">=1.0.0"
+
+  # Core Windows collection (usually included with Ansible)
+  - name: ansible.windows
+    version: ">=1.0.0"
+
+  # Community Crypto for certificate management (ACME/Let's Encrypt)
+  - name: community.crypto
+    version: ">=2.0.0"
+
+  # POSIX collection for firewalld on Linux servers
+  - name: ansible.posix
+    version: ">=1.0.0"

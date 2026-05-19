@@ -1,0 +1,12 @@
+---
+- name: Quick win_ping test
+  hosts: windows_servers
+  gather_facts: false
+
+  vars_files:
+    - secrets.yml
+
+  tasks:
+    - name: Quick win_ping to confirm connectivity and auth
+      win_ping:
+

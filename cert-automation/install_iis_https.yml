@@ -1,0 +1,253 @@
+---
+- name: Install and configure IIS with HTTPS on Windows Server 2019
+  hosts: windows_servers
+  gather_facts: true
+  vars:
+    domain_name: "{{ iis_domain_name | default('www.example.com') }}"
+    site_name: "{{ iis_site_name | default('DefaultWebSite') }}"
+    http_port: 80
+    https_port: 443
+    document_root: "C:\\inetpub\\wwwroot\\{{ site_name }}"
+    site_binding_ip: "*"
+    cert_friendly_name: "{{ site_name }}-SelfSigned"
+    cert_validity_days: 365
+
+  vars_files:
+    - secrets.yml
+
+  collections:
+    - microsoft.iis
+
+  tasks:
+    - name: Install IIS Web Server feature
+      ansible.windows.win_feature:
+        name:
+          - Web-Server
+          - Web-WebServer
+        state: present
+        include_management_tools: true
+      register: iis_install
+
+    - name: Install IIS Common HTTP Features
+      ansible.windows.win_feature:
+        name:
+          - Web-Common-Http
+          - Web-Default-Doc
+          - Web-Dir-Browsing
+          - Web-Http-Errors
+          - Web-Static-Content
+        state: present
+
+    - name: Install IIS Health and Diagnostics
+      ansible.windows.win_feature:
+        name:
+          - Web-Health
+          - Web-Http-Logging
+          - Web-Log-Libraries
+          - Web-Request-Monitor
+          - Web-Http-Tracing
+        state: present
+
+    - name: Install IIS Performance Features
+      ansible.windows.win_feature:
+        name:
+          - Web-Performance
+          - Web-Stat-Compression
+          - Web-Dyn-Compression
+        state: present
+
+    - name: Install IIS Security Features
+      ansible.windows.win_feature:
+        name:
+          - Web-Security
+          - Web-Filtering
+          - Web-Basic-Auth
+          - Web-Windows-Auth
+        state: present
+
+    - name: Install IIS Application Development Features
+      ansible.windows.win_feature:
+        name:
+          - Web-App-Dev
+          - Web-Net-Ext45
+          - Web-Asp-Net45
+          - Web-ISAPI-Ext
+          - Web-ISAPI-Filter
+        state: present
+
+    - name: Install IIS Management Tools
+      ansible.windows.win_feature:
+        name:
+          - Web-Mgmt-Tools
+          - Web-Mgmt-Console
+          - Web-Scripting-Tools
+        state: present
+
+    - name: Reboot if IIS installation requires it
+      ansible.windows.win_reboot:
+        reboot_timeout: 600
+        post_reboot_delay: 60
+      when: iis_install.reboot_required
+
+    - name: Create document root directory
+      ansible.windows.win_file:
+        path: "{{ document_root }}"
+        state: directory
+
+    - name: Deploy sample HTML content
+      ansible.windows.win_template:
+        src: templates/iis_index.html.j2
+        dest: "{{ document_root }}\\index.html"
+
+    - name: Deploy sample CSS file
+      ansible.windows.win_template:
+        src: templates/iis_style.css.j2
+        dest: "{{ document_root }}\\style.css"
+
+    - name: Create self-signed SSL certificate
+      ansible.windows.win_powershell:
+        script: |
+          $cert = New-SelfSignedCertificate `
+            -DnsName "{{ domain_name }}" `
+            -CertStoreLocation "Cert:\LocalMachine\My" `
+            -FriendlyName "{{ cert_friendly_name }}" `
+            -NotAfter (Get-Date).AddDays({{ cert_validity_days }}) `
+            -KeyExportPolicy Exportable `
+            -KeySpec Signature `
+            -KeyLength 2048 `
+            -KeyAlgorithm RSA `
+            -HashAlgorithm SHA256
+
+          $Ansible.Result = @{
+            thumbprint = $cert.Thumbprint
+            subject = $cert.Subject
+            friendly_name = $cert.FriendlyName
+            not_after = $cert.NotAfter.ToString("yyyy-MM-dd HH:mm:ss")
+          }
+      register: ssl_cert
+
+    - name: Display certificate information
+      ansible.builtin.debug:
+        msg: |
+          Certificate Created:
+            Thumbprint: {{ ssl_cert.result.thumbprint }}
+            Subject: {{ ssl_cert.result.subject }}
+            Friendly Name: {{ ssl_cert.result.friendly_name }}
+            Expires: {{ ssl_cert.result.not_after }}
+
+    - name: Remove default IIS website
+      microsoft.iis.website:
+        name: "Default Web Site"
+        state: absent
+
+    - name: Create application pool for the website
+      microsoft.iis.web_app_pool:
+        name: "{{ site_name }}AppPool"
+        state: started
+        managed_runtime_version: "v4.0"
+        managed_pipeline_mode: Integrated
+
+    - name: Create IIS website with bindings
+      microsoft.iis.website:
+        name: "{{ site_name }}"
+        state: started
+        physical_path: "{{ document_root }}"
+        application_pool: "{{ site_name }}AppPool"
+        bindings:
+          - protocol: http
+            port: "{{ http_port }}"
+            ip: "{{ site_binding_ip }}"
+            host_header: "{{ domain_name }}"
+          - protocol: https
+            port: "{{ https_port }}"
+            ip: "{{ site_binding_ip }}"
+            host_header: "{{ domain_name }}"
+            certificate_hash: "{{ ssl_cert.result.thumbprint }}"
+            certificate_store_name: My
+            ssl_flags: 1
+
+    - name: Configure firewall rule for HTTP
+      community.windows.win_firewall_rule:
+        name: "IIS HTTP Traffic"
+        localport: "{{ http_port }}"
+        action: allow
+        direction: in
+        protocol: tcp
+        state: present
+        enabled: true
+        profiles:
+          - domain
+          - private
+          - public
+
+    - name: Configure firewall rule for HTTPS
+      community.windows.win_firewall_rule:
+        name: "IIS HTTPS Traffic"
+        localport: "{{ https_port }}"
+        action: allow
+        direction: in
+        protocol: tcp
+        state: present
+        enabled: true
+        profiles:
+          - domain
+          - private
+          - public
+
+    - name: Ensure IIS service is running
+      ansible.windows.win_service:
+        name: W3SVC
+        state: started
+        start_mode: auto
+
+    - name: Wait for IIS HTTP to be ready
+      ansible.windows.win_wait_for:
+        port: "{{ http_port }}"
+        delay: 2
+        timeout: 30
+
+    - name: Wait for IIS HTTPS to be ready
+      ansible.windows.win_wait_for:
+        port: "{{ https_port }}"
+        delay: 2
+        timeout: 30
+
+    - name: Display completion message
+      ansible.builtin.debug:
+        msg: |
+          ========================================
+          IIS HTTPS Configuration Complete!
+          ========================================
+
+          Website Name: {{ site_name }}
+          HTTPS URL:    https://{{ domain_name }}
+          HTTP URL:     http://{{ domain_name }}
+          Document Root: {{ document_root }}
+
+          SSL Certificate (Self-Signed):
+            - Thumbprint: {{ ssl_cert.result.thumbprint }}
+            - Friendly Name: {{ cert_friendly_name }}
+            - Valid Until: {{ ssl_cert.result.not_after }}
+            - Store: LocalMachine\My
+
+          IMPORTANT: Self-signed certificates will show a browser warning.
+          For production use, obtain a certificate from a trusted CA.
+
+          IIS Manager:
+            - Run 'inetmgr' on the Windows server
+            - Or access via Server Manager > Tools > IIS Manager
+
+          Logs Location:
+            - C:\inetpub\logs\LogFiles
+
+          Application Pool: {{ site_name }}AppPool
+          Runtime Version: .NET 4.0
+          Pipeline Mode: Integrated
+
+          Test the website:
+            curl -k https://{{ domain_name }}
+            # Use -k to ignore self-signed certificate warning
+
+          View certificate:
+            certutil -store My {{ ssl_cert.result.thumbprint }}
+          ========================================
