@@ -144,27 +144,43 @@
       microsoft.iis.web_app_pool:
         name: "{{ site_name }}AppPool"
         state: started
-        managed_runtime_version: "v4.0"
-        managed_pipeline_mode: Integrated
+        attributes:
+          managedRuntimeVersion: "v4.0"
+          managedPipelineMode: "Integrated"
 
-    - name: Create IIS website with bindings
+    - name: Create IIS website
       microsoft.iis.website:
         name: "{{ site_name }}"
         state: started
         physical_path: "{{ document_root }}"
         application_pool: "{{ site_name }}AppPool"
-        bindings:
-          - protocol: http
-            port: "{{ http_port }}"
-            ip: "{{ site_binding_ip }}"
-            host_header: "{{ domain_name }}"
-          - protocol: https
-            port: "{{ https_port }}"
-            ip: "{{ site_binding_ip }}"
-            host_header: "{{ domain_name }}"
-            certificate_hash: "{{ ssl_cert.result.thumbprint }}"
-            certificate_store_name: My
-            ssl_flags: 1
+
+    - name: Configure HTTP binding
+      ansible.windows.win_powershell:
+        script: |
+          Import-Module WebAdministration
+          $siteName = "{{ site_name }}"
+          $binding = Get-WebBinding -Name $siteName -Protocol http -Port {{ http_port }}
+          if (-not $binding) {
+            New-WebBinding -Name $siteName -Protocol http -Port {{ http_port }} -IPAddress {{ site_binding_ip }} -HostHeader "{{ domain_name }}"
+          }
+
+    - name: Configure HTTPS binding with certificate
+      ansible.windows.win_powershell:
+        script: |
+          Import-Module WebAdministration
+          $siteName = "{{ site_name }}"
+          $certHash = "{{ ssl_cert.result.thumbprint }}"
+
+          # Check if HTTPS binding exists
+          $binding = Get-WebBinding -Name $siteName -Protocol https -Port {{ https_port }}
+          if (-not $binding) {
+            New-WebBinding -Name $siteName -Protocol https -Port {{ https_port }} -IPAddress {{ site_binding_ip }} -HostHeader "{{ domain_name }}"
+          }
+
+          # Add SSL certificate to binding
+          $binding = Get-WebBinding -Name $siteName -Protocol https -Port {{ https_port }}
+          $binding.AddSslCertificate($certHash, "My")
 
     - name: Configure firewall rule for HTTP
       community.windows.win_firewall_rule:

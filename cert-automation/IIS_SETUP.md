@@ -369,10 +369,11 @@ ansible-playbook install_iis_https.yml -e "cert_validity_days=730"  # 2 years
   microsoft.iis.web_app_pool:
     name: "{{ site_name }}AppPool"
     state: started
-    managed_runtime_version: "v4.0"
-    managed_pipeline_mode: Integrated
-    identity_type: ApplicationPoolIdentity
-    periodic_restart_time: "1.05:00:00"  # 29 hours
+    attributes:
+      managedRuntimeVersion: "v4.0"
+      managedPipelineMode: "Integrated"
+      processModel.identityType: "ApplicationPoolIdentity"
+      recycling.periodicRestart.time: "1.05:00:00"  # 29 hours
 ```
 
 ## Troubleshooting
