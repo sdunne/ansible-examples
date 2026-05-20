@@ -1,0 +1,205 @@
+---
+- name: Fix IIS HTTPS bindings to use Let's Encrypt certificate
+  hosts: windows_servers
+  gather_facts: false
+  vars:
+    domain_name: "{{ iis_domain_name | default('test1.sdunne.net') }}"
+    site_name: "{{ iis_site_name | default('DefaultWebSite') }}"
+    https_port: 443
+
+  vars_files:
+    - secrets.yml
+
+  tasks:
+    - name: Get Let's Encrypt certificate thumbprint
+      ansible.windows.win_powershell:
+        script: |
+          # Find the Let's Encrypt certificate (not self-signed)
+          $cert = Get-ChildItem -Path Cert:\LocalMachine\My |
+                  Where-Object {
+                    $_.Issuer -like "*Let's Encrypt*" -and
+                    ($_.Subject -like "*test.sdunne.net*" -or $_.DnsNameList.Unicode -contains "{{ domain_name }}")
+                  } |
+                  Sort-Object -Property NotAfter -Descending |
+                  Select-Object -First 1
+
+          if ($cert) {
+            $Ansible.Result = @{
+              thumbprint = $cert.Thumbprint
+              subject = $cert.Subject
+              issuer = $cert.Issuer
+              friendly_name = $cert.FriendlyName
+              dns_names = @($cert.DnsNameList.Unicode)
+              has_private_key = $cert.HasPrivateKey
+              not_after = $cert.NotAfter.ToString("yyyy-MM-dd HH:mm:ss")
+            }
+          } else {
+            throw "Let's Encrypt certificate not found in store"
+          }
+      register: letsencrypt_cert
+
+    - name: Display found certificate
+      ansible.builtin.debug:
+        msg: |
+          Found Let's Encrypt Certificate:
+            Thumbprint: {{ letsencrypt_cert.result.thumbprint }}
+            Subject: {{ letsencrypt_cert.result.subject }}
+            Issuer: {{ letsencrypt_cert.result.issuer }}
+            DNS Names: {{ letsencrypt_cert.result.dns_names | join(', ') }}
+            Has Private Key: {{ letsencrypt_cert.result.has_private_key }}
+            Expires: {{ letsencrypt_cert.result.not_after }}
+
+    - name: Get current IIS bindings
+      ansible.windows.win_powershell:
+        script: |
+          Import-Module WebAdministration
+          $siteName = "{{ site_name }}"
+
+          $bindings = Get-WebBinding -Name $siteName | ForEach-Object {
+            $certHash = $null
+            if ($_.protocol -eq "https") {
+              $certHash = $_.certificateHash
+            }
+            @{
+              protocol = $_.protocol
+              bindingInformation = $_.bindingInformation
+              certificateHash = $certHash
+            }
+          }
+
+          $Ansible.Result = @{
+            bindings = $bindings
+          }
+      register: current_bindings
+
+    - name: Display current bindings
+      ansible.builtin.debug:
+        msg: "{{ current_bindings.result.bindings }}"
+
+    - name: Remove all existing HTTPS bindings
+      ansible.windows.win_powershell:
+        script: |
+          Import-Module WebAdministration
+          $siteName = "{{ site_name }}"
+
+          $httpsBindings = Get-WebBinding -Name $siteName -Protocol https
+          foreach ($binding in $httpsBindings) {
+            Remove-WebBinding -Name $siteName -Protocol https -Port $binding.bindingInformation.Split(':')[1] -HostHeader $binding.bindingInformation.Split(':')[2]
+            Write-Host "Removed HTTPS binding: $($binding.bindingInformation)"
+          }
+
+          $Ansible.Result = @{
+            removed_count = $httpsBindings.Count
+          }
+      register: removed_bindings
+
+    - name: Create new HTTPS binding with Let's Encrypt certificate
+      ansible.windows.win_powershell:
+        script: |
+          Import-Module WebAdministration
+          $siteName = "{{ site_name }}"
+          $certHash = "{{ letsencrypt_cert.result.thumbprint }}"
+          $domain = "{{ domain_name }}"
+          $port = {{ https_port }}
+
+          # Create the HTTPS binding
+          New-WebBinding -Name $siteName -Protocol https -Port $port -HostHeader $domain -SslFlags 1
+
+          # Get the binding we just created
+          $binding = Get-WebBinding -Name $siteName -Protocol https -Port $port -HostHeader $domain
+
+          # Bind the certificate to the binding
+          $binding.AddSslCertificate($certHash, "My")
+
+          Write-Host "HTTPS binding created and certificate attached"
+
+          # Verify the binding
+          $verifyBinding = Get-WebBinding -Name $siteName -Protocol https -Port $port -HostHeader $domain
+
+          $Ansible.Result = @{
+            success = $true
+            binding_info = $verifyBinding.bindingInformation
+            certificate_hash = $certHash
+          }
+      register: new_binding
+
+    - name: Verify certificate is bound correctly
+      ansible.windows.win_powershell:
+        script: |
+          Import-Module WebAdministration
+          $siteName = "{{ site_name }}"
+
+          $binding = Get-WebBinding -Name $siteName -Protocol https
+          $certHash = $binding.certificateHash
+
+          if ($certHash) {
+            $cert = Get-ChildItem -Path "Cert:\LocalMachine\My\$certHash"
+            $Ansible.Result = @{
+              bound_thumbprint = $certHash
+              issuer = $cert.Issuer
+              subject = $cert.Subject
+              expires = $cert.NotAfter.ToString("yyyy-MM-dd HH:mm:ss")
+            }
+          } else {
+            throw "No certificate bound to HTTPS binding"
+          }
+      register: bound_cert
+
+    - name: Display binding verification
+      ansible.builtin.debug:
+        msg: |
+          HTTPS Binding Verified:
+            Certificate Thumbprint: {{ bound_cert.result.bound_thumbprint }}
+            Issuer: {{ bound_cert.result.issuer }}
+            Subject: {{ bound_cert.result.subject }}
+            Expires: {{ bound_cert.result.expires }}
+
+    - name: Restart IIS
+      ansible.windows.win_service:
+        name: W3SVC
+        state: restarted
+
+    - name: Wait for HTTPS to be ready
+      ansible.windows.win_wait_for:
+        port: "{{ https_port }}"
+        delay: 3
+        timeout: 30
+
+    - name: Test HTTPS connection
+      ansible.windows.win_powershell:
+        script: |
+          try {
+            [System.Net.ServicePointManager]::ServerCertificateValidationCallback = {$true}
+            $response = Invoke-WebRequest -Uri "https://{{ domain_name }}" -UseBasicParsing
+            $Ansible.Result = @{
+              success = $true
+              status_code = $response.StatusCode
+            }
+          } catch {
+            $Ansible.Result = @{
+              success = $false
+              error = $_.Exception.Message
+            }
+          }
+      register: https_test
+
+    - name: Display final status
+      ansible.builtin.debug:
+        msg: |
+          ========================================
+          IIS HTTPS Binding Fixed!
+          ========================================
+
+          Website: {{ site_name }}
+          Domain: {{ domain_name }}
+          HTTPS URL: https://{{ domain_name }}
+
+          Certificate:
+            - Thumbprint: {{ letsencrypt_cert.result.thumbprint }}
+            - Issuer: {{ letsencrypt_cert.result.issuer }}
+            - Expires: {{ letsencrypt_cert.result.not_after }}
+
+          HTTPS Test: {{ 'PASSED' if https_test.result.success else 'FAILED - ' + https_test.result.error }}
+
+          The website should now use the Let's Encrypt certificate!
+          ========================================

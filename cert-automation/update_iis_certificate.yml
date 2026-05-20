@@ -1,0 +1,388 @@
+---
+- name: Replace IIS self-signed certificate with Let's Encrypt certificate
+  hosts: windows_servers
+  gather_facts: true
+  vars:
+    domain_name: "{{ iis_domain_name | default('test1.sdunne.net') }}"
+    site_name: "{{ iis_site_name | default('DefaultWebSite') }}"
+    https_port: 443
+    cert_source_dir: "./certs"
+
+    # Certificate file names - using test.sdunne.net cert which includes test1.sdunne.net as SAN
+    cert_base_name: "test.sdunne.net"
+    cert_file: "{{ cert_base_name }}.crt"
+    fullchain_file: "{{ cert_base_name }}-fullchain.crt"
+    key_file: "{{ cert_base_name }}.key"
+    chain_file: "{{ cert_base_name }}-chain.crt"
+
+    # Temporary location on Windows server
+    temp_cert_dir: "C:\\temp\\ssl_certs"
+    # Simple password for temporary PFX (deleted after import)
+    pfx_password: "TempCertPass2024"
+
+  vars_files:
+    - secrets.yml
+
+  collections:
+    - microsoft.iis
+
+  tasks:
+    - name: Display certificate information
+      ansible.builtin.debug:
+        msg: |
+          Updating IIS certificate for: {{ domain_name }}
+          Site name: {{ site_name }}
+          Certificate source: {{ cert_source_dir }}
+
+    - name: Create temporary directory on Windows server
+      ansible.windows.win_file:
+        path: "{{ temp_cert_dir }}"
+        state: directory
+
+    - name: Create PFX file on Ansible controller
+      delegate_to: localhost
+      ansible.builtin.shell:
+        cmd: |
+          openssl pkcs12 -export \
+            -out {{ cert_base_name }}.pfx \
+            -inkey {{ key_file }} \
+            -in {{ fullchain_file }} \
+            -passout pass:{{ pfx_password }}
+        chdir: "{{ cert_source_dir }}"
+        creates: "{{ cert_source_dir }}/{{ cert_base_name }}.pfx"
+
+    - name: Copy PFX to Windows server
+      ansible.windows.win_copy:
+        src: "{{ cert_source_dir }}/{{ cert_base_name }}.pfx"
+        dest: "{{ temp_cert_dir }}\\{{ cert_base_name }}.pfx"
+
+    - name: Remove old self-signed certificate from store
+      ansible.windows.win_powershell:
+        script: |
+          $friendlyName = "{{ site_name }}-SelfSigned"
+          $certs = Get-ChildItem -Path Cert:\LocalMachine\My | Where-Object { $_.FriendlyName -eq $friendlyName }
+
+          foreach ($cert in $certs) {
+            Remove-Item -Path "Cert:\LocalMachine\My\$($cert.Thumbprint)" -Force
+            Write-Host "Removed certificate: $($cert.Thumbprint)"
+          }
+
+          $Ansible.Result = @{
+            removed_count = $certs.Count
+          }
+      register: old_cert_removal
+
+    - name: Import PFX and find the correct certificate (not intermediate)
+      ansible.windows.win_powershell:
+        script: |
+          $pfxPath = "{{ temp_cert_dir }}\{{ cert_base_name }}.pfx"
+          $pfxPassword = ConvertTo-SecureString -String "{{ pfx_password }}" -Force -AsPlainText
+          $domain = "{{ domain_name }}"
+
+          # Import PFX
+          Import-PfxCertificate -FilePath $pfxPath `
+            -CertStoreLocation Cert:\LocalMachine\My `
+            -Password $pfxPassword `
+            -Exportable:$false | Out-Null
+
+          # Find the correct certificate (not intermediate CA)
+          # The correct cert has the domain in Subject and has a private key
+          $cert = Get-ChildItem -Path Cert:\LocalMachine\My | Where-Object {
+            $_.HasPrivateKey -and (
+              $_.Subject -like "*{{ cert_base_name }}*" -or
+              $_.DnsNameList.Unicode -contains $domain
+            )
+          } | Sort-Object -Property NotAfter -Descending | Select-Object -First 1
+
+          if (-not $cert) {
+            throw "Could not find imported certificate with private key for $domain"
+          }
+
+          # Set private key permissions for IIS
+          $rsaCert = [System.Security.Cryptography.X509Certificates.RSACertificateExtensions]::GetRSAPrivateKey($cert)
+          $keyName = $rsaCert.Key.UniqueName
+          $keyPath = "$env:ProgramData\Microsoft\Crypto\RSA\MachineKeys\$keyName"
+
+          if (Test-Path $keyPath) {
+            $acl = Get-Acl -Path $keyPath
+
+            # Grant IIS_IUSRS
+            $iisUsers = New-Object System.Security.Principal.NTAccount("IIS_IUSRS")
+            $permission = New-Object System.Security.AccessControl.FileSystemAccessRule(
+              $iisUsers, "Read", "Allow"
+            )
+            $acl.SetAccessRule($permission)
+
+            # Grant NETWORK SERVICE
+            $networkService = New-Object System.Security.Principal.NTAccount("NETWORK SERVICE")
+            $permission2 = New-Object System.Security.AccessControl.FileSystemAccessRule(
+              $networkService, "Read", "Allow"
+            )
+            $acl.SetAccessRule($permission2)
+
+            # Grant Administrators full control
+            $admins = New-Object System.Security.Principal.NTAccount("Administrators")
+            $permission3 = New-Object System.Security.AccessControl.FileSystemAccessRule(
+              $admins, "FullControl", "Allow"
+            )
+            $acl.SetAccessRule($permission3)
+
+            Set-Acl -Path $keyPath -AclObject $acl
+            $permissionsSet = $true
+          } else {
+            $permissionsSet = $false
+          }
+
+          $Ansible.Result = @{
+            thumbprint = $cert.Thumbprint
+            subject = $cert.Subject
+            issuer = $cert.Issuer
+            not_before = $cert.NotBefore.ToString("yyyy-MM-dd HH:mm:ss")
+            not_after = $cert.NotAfter.ToString("yyyy-MM-dd HH:mm:ss")
+            has_private_key = $cert.HasPrivateKey
+            private_key_path = $keyPath
+            permissions_set = $permissionsSet
+            dns_names = @($cert.DnsNameList.Unicode)
+          }
+      register: imported_cert
+
+    - name: Display imported certificate information
+      ansible.builtin.debug:
+        msg: |
+          Let's Encrypt Certificate Imported:
+            Thumbprint: {{ imported_cert.result.thumbprint }}
+            Subject: {{ imported_cert.result.subject }}
+            DNS Names: {{ imported_cert.result.dns_names | join(', ') }}
+            Issuer: {{ imported_cert.result.issuer }}
+            Valid From: {{ imported_cert.result.not_before }}
+            Valid Until: {{ imported_cert.result.not_after }}
+            Has Private Key: {{ imported_cert.result.has_private_key }}
+            Private Key Permissions Set: {{ imported_cert.result.permissions_set }}
+
+    - name: Remove all existing HTTP bindings (port 80)
+      ansible.windows.win_powershell:
+        script: |
+          Import-Module WebAdministration
+          $siteName = "{{ site_name }}"
+
+          $httpBindings = Get-WebBinding -Name $siteName -Protocol http
+          $removed = 0
+          foreach ($binding in $httpBindings) {
+            $port = $binding.bindingInformation.Split(':')[1]
+            $hostHeader = $binding.bindingInformation.Split(':')[2]
+
+            if ($hostHeader) {
+              Remove-WebBinding -Name $siteName -Protocol http -Port $port -HostHeader $hostHeader
+            } else {
+              Remove-WebBinding -Name $siteName -Protocol http -Port $port
+            }
+            $removed++
+            Write-Host "Removed HTTP binding: $($binding.bindingInformation)"
+          }
+
+          $Ansible.Result = @{
+            removed_count = $removed
+          }
+      register: removed_http_bindings
+
+    - name: Remove all existing HTTPS bindings
+      ansible.windows.win_powershell:
+        script: |
+          Import-Module WebAdministration
+          $siteName = "{{ site_name }}"
+
+          $httpsBindings = Get-WebBinding -Name $siteName -Protocol https
+          $removed = 0
+          foreach ($binding in $httpsBindings) {
+            $port = $binding.bindingInformation.Split(':')[1]
+            $hostHeader = $binding.bindingInformation.Split(':')[2]
+
+            if ($hostHeader) {
+              Remove-WebBinding -Name $siteName -Protocol https -Port $port -HostHeader $hostHeader
+            } else {
+              Remove-WebBinding -Name $siteName -Protocol https -Port $port
+            }
+            $removed++
+            Write-Host "Removed HTTPS binding: $($binding.bindingInformation)"
+          }
+
+          $Ansible.Result = @{
+            removed_count = $removed
+          }
+      register: removed_https_bindings
+
+    - name: Disable HTTP firewall rules
+      community.windows.win_firewall_rule:
+        name: "{{ item }}"
+        enabled: false
+      loop:
+        - "IIS HTTP Traffic"
+        - "World Wide Web Services (HTTP Traffic-In)"
+      ignore_errors: true
+
+    - name: Create HTTPS binding and attach certificate
+      ansible.windows.win_powershell:
+        script: |
+          Import-Module WebAdministration
+          $siteName = "{{ site_name }}"
+          $domain = "{{ domain_name }}"
+          $port = {{ https_port }}
+          $certHash = "{{ imported_cert.result.thumbprint }}"
+
+          # Create binding using WebAdministration
+          New-WebBinding -Name $siteName -Protocol https -Port $port -HostHeader $domain -SslFlags 1
+
+          # Use netsh to bind certificate for SNI
+          $netshResult = & netsh http add sslcert hostnameport="${domain}:${port}" certhash=$certHash appid='{4dc3e181-e14b-4a21-b022-59fc669b0914}' certstorename=MY 2>&1
+
+          if ($LASTEXITCODE -ne 0) {
+            # Check if it already exists
+            $existingBinding = & netsh http show sslcert hostnameport="${domain}:${port}" 2>&1
+            if ($existingBinding -match $certHash) {
+              Write-Host "Certificate already bound correctly"
+            } else {
+              throw "netsh failed: $netshResult"
+            }
+          }
+
+          # Verify
+          $binding = Get-WebBinding -Name $siteName -Protocol https -Port $port -HostHeader $domain
+
+          $Ansible.Result = @{
+            success = $true
+            binding_info = $binding.bindingInformation
+            ssl_flags = $binding.sslFlags
+            netsh_output = $netshResult | Out-String
+          }
+      register: https_binding
+
+    - name: Display binding information
+      ansible.builtin.debug:
+        msg: |
+          HTTPS Binding Created:
+            Binding: {{ https_binding.result.binding_info }}
+            SSL Flags: {{ https_binding.result.ssl_flags }}
+            Netsh Output: {{ https_binding.result.netsh_output }}
+
+    - name: Restart IIS to apply changes
+      ansible.windows.win_service:
+        name: W3SVC
+        state: restarted
+
+    - name: Wait for IIS to be ready
+      ansible.windows.win_wait_for:
+        port: "{{ https_port }}"
+        delay: 3
+        timeout: 30
+
+    - name: Clean up temporary certificate files on Windows
+      ansible.windows.win_file:
+        path: "{{ temp_cert_dir }}"
+        state: absent
+
+    - name: Clean up PFX file on Ansible controller
+      delegate_to: localhost
+      ansible.builtin.file:
+        path: "{{ cert_source_dir }}/{{ cert_base_name }}.pfx"
+        state: absent
+
+    - name: Verify HTTPS is working locally
+      ansible.windows.win_powershell:
+        script: |
+          try {
+            [System.Net.ServicePointManager]::ServerCertificateValidationCallback = {$true}
+            $response = Invoke-WebRequest -Uri "https://{{ domain_name }}" -UseBasicParsing -TimeoutSec 10
+            $Ansible.Result = @{
+              status_code = $response.StatusCode
+              success = $true
+            }
+          } catch {
+            $Ansible.Result = @{
+              success = $false
+              error = $_.Exception.Message
+            }
+          }
+      register: https_test
+
+    - name: Verify certificate binding using IISAdministration
+      ansible.windows.win_powershell:
+        script: |
+          Import-Module IISAdministration
+          $siteName = "{{ site_name }}"
+          $expectedThumbprint = "{{ imported_cert.result.thumbprint }}"
+
+          $serverManager = Get-IISServerManager
+          $site = $serverManager.Sites[$siteName]
+
+          $httpsBinding = $null
+          foreach ($binding in $site.Bindings) {
+            if ($binding.Protocol -eq "https") {
+              $httpsBinding = $binding
+              break
+            }
+          }
+
+          if ($httpsBinding -and $httpsBinding.CertificateHash) {
+            # Convert byte array to hex string
+            $boundCertHash = ($httpsBinding.CertificateHash | ForEach-Object { $_.ToString("X2") }) -join ''
+
+            $cert = Get-ChildItem -Path "Cert:\LocalMachine\My\$boundCertHash"
+            $Ansible.Result = @{
+              bound_correctly = $true
+              certificate_thumbprint = $boundCertHash
+              certificate_subject = $cert.Subject
+              certificate_issuer = $cert.Issuer
+              certificate_expires = $cert.NotAfter.ToString("yyyy-MM-dd HH:mm:ss")
+              has_private_key = $cert.HasPrivateKey
+              matches_imported = ($boundCertHash -eq $expectedThumbprint)
+            }
+          } else {
+            $Ansible.Result = @{
+              bound_correctly = $false
+              error = "No certificate hash found on binding"
+            }
+          }
+      register: final_verify
+      failed_when: not final_verify.result.bound_correctly
+
+    - name: Display completion message
+      ansible.builtin.debug:
+        msg: |
+          ========================================
+          IIS Certificate Update Complete!
+          ========================================
+
+          Website: {{ site_name }}
+          Domain: {{ domain_name }}
+          HTTPS URL: https://{{ domain_name }}
+
+          Certificate Imported:
+            - Thumbprint: {{ imported_cert.result.thumbprint }}
+            - Issuer: {{ imported_cert.result.issuer }}
+            - Valid Until: {{ imported_cert.result.not_after }}
+            - Has Private Key: {{ imported_cert.result.has_private_key }}
+
+          Certificate Bound to IIS:
+            {% if final_verify.result.bound_correctly %}
+            - Bound Thumbprint: {{ final_verify.result.certificate_thumbprint }}
+            - Subject: {{ final_verify.result.certificate_subject }}
+            - Expires: {{ final_verify.result.certificate_expires }}
+            - Private Key Accessible: {{ final_verify.result.has_private_key }}
+            - Matches Imported: {{ final_verify.result.matches_imported }}
+            {% else %}
+            - ERROR: {{ final_verify.result.error }}
+            {% endif %}
+
+          Old self-signed certificates removed: {{ old_cert_removal.result.removed_count }}
+          Old HTTP bindings removed: {{ removed_http_bindings.result.removed_count }}
+          Old HTTPS bindings removed: {{ removed_https_bindings.result.removed_count }}
+
+          Security:
+            - HTTP (port 80) DISABLED - HTTPS only
+            - HTTP firewall rules disabled
+
+          HTTPS Test: {{ 'PASSED ✓' if https_test.result.success else 'FAILED - ' + https_test.result.error }}
+
+          The website is now using a Let's Encrypt certificate!
+          Test with: curl -k https://{{ domain_name }}
+          ========================================

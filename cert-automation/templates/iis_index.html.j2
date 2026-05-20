@@ -19,8 +19,7 @@
             <p><strong>Hostname:</strong> {{ domain_name }}</p>
             <p><strong>Web Server:</strong> Microsoft IIS on Windows Server 2019</p>
             <p><strong>Website Name:</strong> {{ site_name }}</p>
-            <p><strong>Protocol:</strong> HTTPS (SSL/TLS Enabled)</p>
-            <p><strong>HTTP Port:</strong> {{ http_port }}</p>
+            <p><strong>Protocol:</strong> HTTPS Only (HTTP Disabled)</p>
             <p><strong>HTTPS Port:</strong> {{ https_port }}</p>
             <p><strong>Deployed:</strong> {{ ansible_date_time.iso8601 }}</p>
         </div>
@@ -35,10 +34,10 @@
 
         <div class="info">
             <h2>SSL/TLS Certificate</h2>
-            <p><strong>Certificate Type:</strong> Self-Signed</p>
-            <p><strong>Friendly Name:</strong> {{ cert_friendly_name }}</p>
-            <p><strong>Valid For:</strong> {{ cert_validity_days }} days</p>
-            <p><strong>⚠️ Note:</strong> Self-signed certificates will show a browser warning. This is normal for development/testing environments.</p>
+            <p><strong>Certificate Type:</strong> Let's Encrypt (Trusted CA)</p>
+            <p><strong>Issuer:</strong> Let's Encrypt</p>
+            <p><strong>Certificate Authority:</strong> (STAGING) Let's Encrypt - For Testing Only</p>
+            <p><strong>⚠️ Note:</strong> This is a Let's Encrypt STAGING certificate. Browsers will show a warning because staging certificates are for testing only. For production, use a Let's Encrypt production certificate.</p>
         </div>
 
         <div class="info">
@@ -51,8 +50,15 @@
 
         <div class="info">
             <h2>About This Deployment</h2>
-            <p>This IIS website was automatically deployed using Ansible automation. The web server is configured with HTTPS using a self-signed SSL certificate and includes sample content to verify successful installation.</p>
-            <p>Features installed include:</p>
+            <p>This IIS website was automatically deployed using Ansible automation. The web server is configured with HTTPS using a Let's Encrypt SSL certificate obtained via ACME protocol with DNS-01 validation.</p>
+            <p><strong>Security Configuration:</strong></p>
+            <ul>
+                <li>✅ HTTPS Only - HTTP (port 80) is disabled</li>
+                <li>✅ Let's Encrypt SSL/TLS certificate</li>
+                <li>✅ HTTP firewall rules disabled</li>
+                <li>✅ All traffic encrypted</li>
+            </ul>
+            <p><strong>Features installed include:</strong></p>
             <ul>
                 <li>IIS Web Server with common HTTP features</li>
                 <li>Static content serving</li>
