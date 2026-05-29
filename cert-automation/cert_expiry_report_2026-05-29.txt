@@ -1,0 +1,16 @@
+Certificate Expiry Report
+Generated: 2026-05-29T19:56:18Z
+==========================================
+
+Endpoint: Apache RHEL9
+Host: test.sdunne.net:443
+Expiry Date: Aug 16 13:22:04 2026 GMT
+Days Remaining: 78
+Status: OK
+---
+Endpoint: Windows IIS
+Host: test1.sdunne.net:443
+Expiry Date: Aug 16 13:22:04 2026 GMT
+Days Remaining: 78
+Status: OK
+---

@@ -1,0 +1,142 @@
+---
+- name: Check TLS Certificate Expiry - Apache (RHEL 9)
+  hosts: webservers
+  gather_facts: yes
+  become: yes
+  vars:
+    cert_warning_days: 30
+    apache_cert_path: /etc/pki/tls/certs
+    apache_key_path: /etc/pki/tls/private
+
+  tasks:
+    - name: Find Apache SSL certificate files
+      find:
+        paths: "{{ apache_cert_path }}"
+        patterns: "*.crt,*.pem"
+        file_type: file
+      register: cert_files
+
+    - name: Get certificate information
+      community.crypto.x509_certificate_info:
+        path: "{{ item.path }}"
+      loop: "{{ cert_files.files }}"
+      register: cert_info
+      when: cert_files.files | length > 0
+
+    - name: Calculate days until expiry
+      set_fact:
+        cert_expiry_info: >-
+          {{
+            cert_expiry_info | default([]) +
+            [{
+              'path': item.item.path,
+              'subject': item.subject,
+              'issuer': item.issuer,
+              'not_after': item.not_after,
+              'days_remaining': ((item.not_after | to_datetime('%Y%m%d%H%M%SZ')) - (ansible_date_time.date | to_datetime('%Y-%m-%d'))).days,
+              'expired': ((item.not_after | to_datetime('%Y%m%d%H%M%SZ')) < (ansible_date_time.date | to_datetime('%Y-%m-%d')))
+            }]
+          }}
+      loop: "{{ cert_info.results }}"
+      when:
+        - cert_info.results is defined
+        - item.not_after is defined
+
+    - name: Display Apache certificate expiry information
+      debug:
+        msg: |
+          Certificate: {{ item.path }}
+          Subject: {{ item.subject }}
+          Issuer: {{ item.issuer }}
+          Expires: {{ item.not_after }}
+          Days Remaining: {{ item.days_remaining }}
+          Status: {{ 'EXPIRED' if item.expired else ('WARNING - Expires Soon!' if item.days_remaining < cert_warning_days else 'OK') }}
+      loop: "{{ cert_expiry_info | default([]) }}"
+
+    - name: Alert on expiring or expired certificates
+      fail:
+        msg: "Certificate {{ item.path }} expires in {{ item.days_remaining }} days or has already expired!"
+      loop: "{{ cert_expiry_info | default([]) }}"
+      when:
+        - item.expired or item.days_remaining < cert_warning_days
+      ignore_errors: yes
+
+- name: Check TLS Certificate Expiry - IIS (Windows 2019)
+  hosts: windows_servers
+  gather_facts: yes
+  vars:
+    cert_warning_days: 30
+
+  tasks:
+    - name: Get IIS site bindings and certificates
+      win_shell: |
+        Import-Module WebAdministration
+        $results = @()
+
+        Get-ChildItem -Path IIS:\Sites | ForEach-Object {
+            $siteName = $_.Name
+            $_.Bindings.Collection | Where-Object { $_.protocol -eq 'https' } | ForEach-Object {
+                $binding = $_
+                $certHash = $binding.certificateHash
+
+                if ($certHash) {
+                    $cert = Get-ChildItem -Path Cert:\LocalMachine\My | Where-Object { $_.Thumbprint -eq $certHash }
+
+                    if ($cert) {
+                        $daysRemaining = ($cert.NotAfter - (Get-Date)).Days
+
+                        $result = [PSCustomObject]@{
+                            SiteName = $siteName
+                            BindingInformation = $binding.bindingInformation
+                            Protocol = $binding.protocol
+                            CertificateThumbprint = $certHash
+                            Subject = $cert.Subject
+                            Issuer = $cert.Issuer
+                            NotBefore = $cert.NotBefore.ToString('yyyy-MM-dd HH:mm:ss')
+                            NotAfter = $cert.NotAfter.ToString('yyyy-MM-dd HH:mm:ss')
+                            DaysRemaining = $daysRemaining
+                            Expired = ($cert.NotAfter -lt (Get-Date))
+                        }
+                        $results += $result
+                    }
+                }
+            }
+        }
+
+        $results | ConvertTo-Json -Depth 3
+      register: iis_cert_info
+
+    - name: Parse IIS certificate information
+      set_fact:
+        iis_certs: "{{ iis_cert_info.stdout | from_json }}"
+      when: iis_cert_info.stdout | length > 0
+
+    - name: Display IIS certificate expiry information
+      debug:
+        msg: |
+          Site: {{ item.SiteName }}
+          Binding: {{ item.BindingInformation }}
+          Subject: {{ item.Subject }}
+          Issuer: {{ item.Issuer }}
+          Expires: {{ item.NotAfter }}
+          Days Remaining: {{ item.DaysRemaining }}
+          Status: {{ 'EXPIRED' if item.Expired else ('WARNING - Expires Soon!' if item.DaysRemaining < cert_warning_days else 'OK') }}
+      loop: "{{ iis_certs if iis_certs is not string else [iis_certs] }}"
+      when: iis_certs is defined
+
+    - name: Alert on expiring or expired IIS certificates
+      fail:
+        msg: "Certificate for {{ item.SiteName }} ({{ item.Subject }}) expires in {{ item.DaysRemaining }} days or has already expired!"
+      loop: "{{ iis_certs if iis_certs is not string else [iis_certs] }}"
+      when:
+        - iis_certs is defined
+        - item.Expired or item.DaysRemaining < cert_warning_days
+      ignore_errors: yes
+
+- name: Certificate Expiry Summary
+  hosts: localhost
+  gather_facts: no
+  tasks:
+    - name: Summary
+      debug:
+        msg: "Certificate expiry check complete. Review output above for details."
