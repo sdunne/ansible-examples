@@ -10,7 +10,7 @@
 
   tasks:
     - name: Find Apache SSL certificate files
-      find:
+      ansible.builtin.find:
         paths: "{{ apache_cert_path }}"
         patterns: "*.crt,*.pem"
         file_type: file
@@ -54,7 +54,7 @@
       loop: "{{ cert_expiry_info | default([]) }}"
 
     - name: Alert on expiring or expired certificates
-      fail:
+      ansible.builtin.fail:
         msg: "Certificate {{ item.path }} expires in {{ item.days_remaining }} days or has already expired!"
       loop: "{{ cert_expiry_info | default([]) }}"
       when:
@@ -125,7 +125,7 @@
       when: iis_certs is defined
 
     - name: Alert on expiring or expired IIS certificates
-      fail:
+      ansible.builtin.fail:
         msg: "Certificate for {{ item.SiteName }} ({{ item.Subject }}) expires in {{ item.DaysRemaining }} days or has already expired!"
       loop: "{{ iis_certs if iis_certs is not string else [iis_certs] }}"
       when:

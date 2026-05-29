@@ -13,16 +13,9 @@
         port: 443
 
   tasks:
-    - name: Ensure openssl is available
-      package:
-        name: openssl
-        state: present
-      become: yes
-      when: ansible_os_family == "RedHat" or ansible_os_family == "Debian"
-
     - name: Check certificate expiry for each endpoint
-      shell: |
-        echo | openssl s_client -servername {{ item.host }} -connect {{ item.host }}:{{ item.port }} 2>/dev/null | openssl x509 -noout -dates -subject -issuer
+      ansible.builtin.shell: |
+        timeout 10 bash -c 'echo | openssl s_client -servername {{ item.host }} -connect {{ item.host }}:{{ item.port }} 2>/dev/null | openssl x509 -noout -dates -subject -issuer'
       register: cert_check
       loop: "{{ endpoints }}"
       failed_when: false
@@ -42,15 +35,15 @@
       loop: "{{ cert_check.results }}"
 
     - name: Get detailed certificate expiry
-      shell: |
-        echo | openssl s_client -servername {{ item.host }} -connect {{ item.host }}:{{ item.port }} 2>/dev/null | openssl x509 -noout -enddate | cut -d= -f2
+      ansible.builtin.shell: |
+        timeout 10 bash -c 'echo | openssl s_client -servername {{ item.host }} -connect {{ item.host }}:{{ item.port }} 2>/dev/null | openssl x509 -noout -enddate | cut -d= -f2'
       register: cert_expiry
       loop: "{{ endpoints }}"
       when: item.host is defined
       failed_when: false
 
     - name: Calculate days until expiry
-      shell: |
+      ansible.builtin.shell: |
         EXPIRY_DATE="{{ item.stdout }}"
         EXPIRY_EPOCH=$(date -d "$EXPIRY_DATE" +%s)
         CURRENT_EPOCH=$(date +%s)
@@ -85,22 +78,29 @@
         - item.rc == 0
         - (item.stdout | int) < cert_warning_days
 
-    - name: Generate summary report
-      copy:
-        content: |
-          Certificate Expiry Report
-          Generated: {{ ansible_date_time.iso8601 }}
-          ==========================================
+    - name: Display certificate expiry information
+      ansible.builtin.debug:
+        msg:
+          - "Server: {{ item.item.item.name }}, Host: {{ item.item.item.host }}:{{ item.item.item.port }}, Expires: {{ item.item.stdout }}, Days Remaining: {{ item.stdout }}, Status: {% if (item.stdout | int) < 0 %}EXPIRED{% elif (item.stdout | int) < cert_warning_days %}WARNING{% else %}OK{% endif %}"
+      loop: "{{ days_calc.results }}"
+      when:
+        - item.rc is defined
+        - item.rc == 0
 
-          {% for item in days_calc.results %}
-          {% if item.rc == 0 %}
-          Endpoint: {{ item.item.item.name }}
-          Host: {{ item.item.item.host }}:{{ item.item.item.port }}
-          Expiry Date: {{ item.item.stdout }}
-          Days Remaining: {{ item.stdout }}
-          Status: {{ 'CRITICAL - EXPIRES SOON' if (item.stdout | int) < cert_warning_days else 'OK' }}
-          ---
-          {% endif %}
-          {% endfor %}
-        dest: "./cert_expiry_report_{{ ansible_date_time.date }}.txt"
+    - name: Generate HTML certificate report
+      ansible.builtin.template:
+        src: templates/cert-report.html.j2
+        dest: /tmp/cert-report.html
       delegate_to: localhost
+
+- name: Deploy HTML report to webserver
+  hosts: webservers
+  become: yes
+  tasks:
+    - name: Copy HTML report to Apache webserver
+      ansible.builtin.copy:
+        src: /tmp/cert-report.html
+        dest: /var/www/test.sdunne.net/cert-report.html
+        owner: apache
+        group: apache
+        mode: '0644'
