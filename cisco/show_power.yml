@@ -1,0 +1,45 @@
+---
+- name: Run show power command on Cisco switches
+  hosts: cisco_switches
+  gather_facts: false
+
+  vars_files:
+    - secrets.yml
+
+  tasks:
+    - name: Execute show power command
+      cisco.ios.ios_command:
+        commands:
+          - show power
+      register: power_output
+
+    - name: Display power information
+      ansible.builtin.debug:
+        var: power_output.stdout_lines[0]
+
+    - name: Extract POE power value and calculate half
+      ansible.builtin.set_fact:
+        poe_total_watts: "{{ power_output.stdout_lines[0] | select('search', 'Total power available') | list | last | regex_search('(\\d+)', '\\1') | first }}"
+
+    - name: Calculate half of POE power
+      ansible.builtin.set_fact:
+        poe_half_watts: "{{ (poe_total_watts | int / 2) | int }}"
+
+    - name: Display half POE power
+      ansible.builtin.debug:
+        msg: "Half of POE power ({{ poe_total_watts }} Watts / 2) = {{ poe_half_watts }} Watts"
+
+    - name: Gather hardware facts from Cisco switch
+      cisco.ios.ios_facts:
+        gather_subset:
+          - hardware
+      register: hardware_facts
+
+    - name: Display hardware facts
+      ansible.builtin.debug:
+        msg:
+          - "Device Model: {{ ansible_net_model }}"
+          - "Serial Number: {{ ansible_net_serialnum }}"
+          - "IOS Version: {{ ansible_net_version }}"
+          - "Hostname: {{ ansible_net_hostname }}"
+          - "Image: {{ ansible_net_image }}"
