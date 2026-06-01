@@ -5,13 +5,15 @@
   vars:
     cert_warning_days: 30
     endpoints:
-      - "test.sdunne.net"
-      - "test1.sdunne.net"
+      - website: "test.sdunne.net"
+        port: 443
+      - website: "test1.sdunne.net"
+        port: 443
 
   tasks:
     - name: Check certificate expiry for each endpoint
       ansible.builtin.shell: |
-        timeout 10 bash -c 'echo | openssl s_client -servername {{ item }} -connect {{ item }}:443 2>/dev/null | openssl x509 -noout -dates -subject -issuer'
+        timeout 10 bash -c 'echo | openssl s_client -servername {{ item.website }} -connect {{ item.website }}:{{ item.port }} 2>/dev/null | openssl x509 -noout -dates -subject -issuer'
       register: cert_check
       loop: "{{ endpoints }}"
       failed_when: false
@@ -22,7 +24,8 @@
           {{
             cert_details | default([]) +
             [{
-              'website': item.item,
+              'website': item.item.website,
+              'port': item.item.port,
               'output': item.stdout,
               'reachable': item.rc == 0
             }]
@@ -31,7 +34,7 @@
 
     - name: Get detailed certificate expiry
       ansible.builtin.shell: |
-        timeout 10 bash -c 'echo | openssl s_client -servername {{ item }} -connect {{ item }}:443 2>/dev/null | openssl x509 -noout -enddate | cut -d= -f2'
+        timeout 10 bash -c 'echo | openssl s_client -servername {{ item.website }} -connect {{ item.website }}:{{ item.port }} 2>/dev/null | openssl x509 -noout -enddate | cut -d= -f2'
       register: cert_expiry
       loop: "{{ endpoints }}"
       failed_when: false
@@ -52,10 +55,10 @@
 
     - name: Display certificate status for each website
       ansible.builtin.debug:
-        msg: "{{ item.item.item }} - Expires: {{ item.item.stdout }} ({{ item.stdout }} days) - {% if (item.stdout | int) < 0 %}EXPIRED{% elif (item.stdout | int) < cert_warning_days %}WARNING{% else %}OK{% endif %}"
+        msg: "{{ item.item.item.website }}:{{ item.item.item.port }} - Expires: {{ item.item.stdout }} ({{ item.stdout }} days) - {% if (item.stdout | int) < 0 %}EXPIRED{% elif (item.stdout | int) < cert_warning_days %}WARNING{% else %}OK{% endif %}"
       loop: "{{ days_calc.results }}"
       loop_control:
-        label: "{{ item.item.item }}"
+        label: "{{ item.item.item.website }}:{{ item.item.item.port }}"
       when:
         - item.rc is defined
         - item.rc == 0
