@@ -50,32 +50,12 @@
         - item.rc == 0
       failed_when: false
 
-    - name: Display certificate information
-      debug:
-        msg: |
-          Website: {{ item.item.item }}
-          Expiry Date: {{ item.item.stdout }}
-          Days Remaining: {{ item.stdout }}
-          Status: {{ 'WARNING - Expires Soon!' if (item.stdout | int) < cert_warning_days else 'OK' }}
-      loop: "{{ days_calc.results }}"
-      when:
-        - item.rc is defined
-        - item.rc == 0
-
-    - name: Alert on expiring certificates
-      debug:
-        msg: "⚠️  WARNING: {{ item.item.item }} certificate expires in {{ item.stdout }} days!"
-      loop: "{{ days_calc.results }}"
-      when:
-        - item.rc is defined
-        - item.rc == 0
-        - (item.stdout | int) < cert_warning_days
-
-    - name: Display certificate expiry information
+    - name: Display certificate status for each website
       ansible.builtin.debug:
-        msg:
-          - "Website: {{ item.item.item }}, Expires: {{ item.item.stdout }}, Days Remaining: {{ item.stdout }}, Status: {% if (item.stdout | int) < 0 %}EXPIRED{% elif (item.stdout | int) < cert_warning_days %}WARNING{% else %}OK{% endif %}"
+        msg: "{{ item.item.item }} - Expires: {{ item.item.stdout }} ({{ item.stdout }} days) - {% if (item.stdout | int) < 0 %}EXPIRED{% elif (item.stdout | int) < cert_warning_days %}WARNING{% else %}OK{% endif %}"
       loop: "{{ days_calc.results }}"
+      loop_control:
+        label: "{{ item.item.item }}"
       when:
         - item.rc is defined
         - item.rc == 0
