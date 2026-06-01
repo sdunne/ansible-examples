@@ -1,6 +1,6 @@
 ---
 - name: Install and configure IIS with HTTPS on Windows Server 2019
-  hosts: windows_servers
+  hosts: "{{ _hosts | default(omit) }}"
   gather_facts: true
   vars:
     domain_name: "{{ iis_domain_name | default('www.example.com') }}"

@@ -1,6 +1,6 @@
 ---
 - name: Install Apache with HTTPS configuration on test.sdunne.net
-  hosts: test.sdunne.net
+  hosts: rhel_web_servers
   become: true
   vars:
     domain_name: test.sdunne.net
