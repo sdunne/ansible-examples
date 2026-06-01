@@ -1,0 +1,81 @@
+---
+- name: Check TLS Certificate Expiry via Remote Connection
+  hosts: localhost
+  gather_facts: yes
+  vars:
+    cert_warning_days: 30
+    endpoints:
+      - "test.sdunne.net"
+      - "test1.sdunne.net"
+
+  tasks:
+    - name: Check certificate expiry for each endpoint
+      ansible.builtin.shell: |
+        timeout 10 bash -c 'echo | openssl s_client -servername {{ item }} -connect {{ item }}:443 2>/dev/null | openssl x509 -noout -dates -subject -issuer'
+      register: cert_check
+      loop: "{{ endpoints }}"
+      failed_when: false
+
+    - name: Parse certificate information
+      set_fact:
+        cert_details: >-
+          {{
+            cert_details | default([]) +
+            [{
+              'website': item.item,
+              'output': item.stdout,
+              'reachable': item.rc == 0
+            }]
+          }}
+      loop: "{{ cert_check.results }}"
+
+    - name: Get detailed certificate expiry
+      ansible.builtin.shell: |
+        timeout 10 bash -c 'echo | openssl s_client -servername {{ item }} -connect {{ item }}:443 2>/dev/null | openssl x509 -noout -enddate | cut -d= -f2'
+      register: cert_expiry
+      loop: "{{ endpoints }}"
+      failed_when: false
+
+    - name: Calculate days until expiry
+      ansible.builtin.shell: |
+        EXPIRY_DATE="{{ item.stdout }}"
+        EXPIRY_EPOCH=$(date -d "$EXPIRY_DATE" +%s)
+        CURRENT_EPOCH=$(date +%s)
+        DAYS_REMAINING=$(( ($EXPIRY_EPOCH - $CURRENT_EPOCH) / 86400 ))
+        echo $DAYS_REMAINING
+      register: days_calc
+      loop: "{{ cert_expiry.results }}"
+      when:
+        - item.rc is defined
+        - item.rc == 0
+      failed_when: false
+
+    - name: Display certificate information
+      debug:
+        msg: |
+          Website: {{ item.item.item }}
+          Expiry Date: {{ item.item.stdout }}
+          Days Remaining: {{ item.stdout }}
+          Status: {{ 'WARNING - Expires Soon!' if (item.stdout | int) < cert_warning_days else 'OK' }}
+      loop: "{{ days_calc.results }}"
+      when:
+        - item.rc is defined
+        - item.rc == 0
+
+    - name: Alert on expiring certificates
+      debug:
+        msg: "⚠️  WARNING: {{ item.item.item }} certificate expires in {{ item.stdout }} days!"
+      loop: "{{ days_calc.results }}"
+      when:
+        - item.rc is defined
+        - item.rc == 0
+        - (item.stdout | int) < cert_warning_days
+
+    - name: Display certificate expiry information
+      ansible.builtin.debug:
+        msg:
+          - "Website: {{ item.item.item }}, Expires: {{ item.item.stdout }}, Days Remaining: {{ item.stdout }}, Status: {% if (item.stdout | int) < 0 %}EXPIRED{% elif (item.stdout | int) < cert_warning_days %}WARNING{% else %}OK{% endif %}"
+      loop: "{{ days_calc.results }}"
+      when:
+        - item.rc is defined
+        - item.rc == 0
