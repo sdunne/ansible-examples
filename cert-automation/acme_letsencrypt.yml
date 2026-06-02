@@ -29,6 +29,7 @@
     acme_email: admin@example.com
   vars_files:
     - secrets.yml
+    - vars.yml
 
   tasks:
     - name: Ensure certificate directory exists

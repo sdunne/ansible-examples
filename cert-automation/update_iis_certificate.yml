@@ -1,7 +1,9 @@
 ---
 - name: Replace IIS self-signed certificate with Let's Encrypt certificate
-  hosts: windows_servers
+  hosts: wintest1
   gather_facts: true
+  environment:
+    PYTHONWARNINGS: "ignore"
   vars:
     domain_name: "{{ iis_domain_name | default('test1.sdunne.net') }}"
     site_name: "{{ iis_site_name | default('DefaultWebSite') }}"
@@ -232,17 +234,18 @@
           # Create binding using WebAdministration
           New-WebBinding -Name $siteName -Protocol https -Port $port -HostHeader $domain -SslFlags 1
 
+          # Remove existing netsh SSL cert binding if it exists
+          $existingCheck = & netsh http show sslcert hostnameport="${domain}:${port}" 2>&1
+          if ($LASTEXITCODE -eq 0) {
+            Write-Host "Removing existing SSL cert binding for ${domain}:${port}"
+            & netsh http delete sslcert hostnameport="${domain}:${port}" 2>&1 | Out-Null
+          }
+
           # Use netsh to bind certificate for SNI
           $netshResult = & netsh http add sslcert hostnameport="${domain}:${port}" certhash=$certHash appid='{4dc3e181-e14b-4a21-b022-59fc669b0914}' certstorename=MY 2>&1
 
           if ($LASTEXITCODE -ne 0) {
-            # Check if it already exists
-            $existingBinding = & netsh http show sslcert hostnameport="${domain}:${port}" 2>&1
-            if ($existingBinding -match $certHash) {
-              Write-Host "Certificate already bound correctly"
-            } else {
-              throw "netsh failed: $netshResult"
-            }
+            throw "netsh failed: $netshResult"
           }
 
           # Verify

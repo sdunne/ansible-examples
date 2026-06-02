@@ -94,7 +94,7 @@
       delegate_to: localhost
 
 - name: Deploy HTML report to webserver
-  hosts: webservers
+  hosts: test.sdunne.net
   become: yes
   tasks:
     - name: Copy HTML report to Apache webserver
