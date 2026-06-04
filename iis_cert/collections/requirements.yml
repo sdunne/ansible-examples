@@ -1,3 +1,5 @@
+---
 collections:
-  - microsoft.iis
-  - community.windows
+  - name: microsoft.iis
+  - name: community.windows
+
