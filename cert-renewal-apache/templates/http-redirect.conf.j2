@@ -1,0 +1,8 @@
+<VirtualHost *:80>
+    ServerName {{ cert_common_name }}
+
+    # Redirect all HTTP traffic to HTTPS
+    RewriteEngine On
+    RewriteCond %{HTTPS} off
+    RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [R=301,L]
+</VirtualHost>

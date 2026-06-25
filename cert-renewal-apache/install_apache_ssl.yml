@@ -1,0 +1,90 @@
+---
+- name: Install Apache with self-signed SSL certificate on RHEL 9
+  hosts: "{{ _hosts }}"
+  become: yes
+
+  vars:
+    cert_country: "US"
+    cert_state: "State"
+    cert_locality: "City"
+    cert_organization: "Organization"
+    cert_common_name: "{{ ansible_fqdn }}"
+    cert_validity_days: 29 
+    ssl_cert_path: "/etc/pki/tls/certs/apache-selfsigned.crt"
+    ssl_key_path: "/etc/pki/tls/private/apache-selfsigned.key"
+
+  tasks:
+    - name: Install Apache and mod_ssl
+      ansible.builtin.dnf:
+        name:
+          - httpd
+          - mod_ssl
+          - openssl
+        state: present
+
+    - name: Generate self-signed SSL certificate
+      ansible.builtin.command:
+        cmd: >
+          openssl req -x509 -nodes -days {{ cert_validity_days }}
+          -newkey rsa:2048
+          -keyout {{ ssl_key_path }}
+          -out {{ ssl_cert_path }}
+          -subj "/C={{ cert_country }}/ST={{ cert_state }}/L={{ cert_locality }}/O={{ cert_organization }}/CN={{ cert_common_name }}"
+        creates: "{{ ssl_cert_path }}"
+
+    - name: Set proper permissions on SSL key
+      ansible.builtin.file:
+        path: "{{ ssl_key_path }}"
+        mode: '0600'
+        owner: root
+        group: root
+
+    - name: Set proper permissions on SSL certificate
+      ansible.builtin.file:
+        path: "{{ ssl_cert_path }}"
+        mode: '0644'
+        owner: root
+        group: root
+
+    - name: Configure HTTP to HTTPS redirect
+      ansible.builtin.template:
+        src: templates/http-redirect.conf.j2
+        dest: /etc/httpd/conf.d/http-redirect.conf
+        mode: '0644'
+      notify: Restart Apache
+
+    - name: Configure SSL virtual host
+      ansible.builtin.template:
+        src: templates/ssl-vhost.conf.j2
+        dest: /etc/httpd/conf.d/ssl-vhost.conf
+        mode: '0644'
+      notify: Restart Apache
+
+    - name: Create sample index.html
+      ansible.builtin.template:
+        src: templates/index.html.j2
+        dest: /var/www/html/index.html
+        mode: '0644'
+
+    - name: Configure firewall for HTTP and HTTPS
+      ansible.posix.firewalld:
+        service: "{{ item }}"
+        permanent: yes
+        state: enabled
+        immediate: yes
+      loop:
+        - http
+        - https
+      when: ansible_facts.services['firewalld.service'] is defined and ansible_facts.services['firewalld.service'].state == 'running'
+
+    - name: Enable and start Apache
+      ansible.builtin.systemd:
+        name: httpd
+        enabled: yes
+        state: started
+
+  handlers:
+    - name: Restart Apache
+      ansible.builtin.systemd:
+        name: httpd
+        state: restarted

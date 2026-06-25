@@ -1,0 +1,22 @@
+<VirtualHost *:443>
+    ServerName {{ cert_common_name }}
+    DocumentRoot /var/www/html
+
+    SSLEngine on
+    SSLCertificateFile {{ ssl_cert_path }}
+    SSLCertificateKeyFile {{ ssl_key_path }}
+
+    # HSTS: Force HTTPS for 1 year (31536000 seconds)
+    Header always set Strict-Transport-Security "max-age=31536000; includeSubDomains"
+
+    # Additional security headers
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set X-Frame-Options "SAMEORIGIN"
+
+    <Directory /var/www/html>
+        Require all granted
+    </Directory>
+
+    ErrorLog /var/log/httpd/ssl_error.log
+    CustomLog /var/log/httpd/ssl_access.log combined
+</VirtualHost>
