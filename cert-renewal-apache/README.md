@@ -6,7 +6,7 @@ This Ansible playbook installs Apache (httpd) on RHEL 9 with a self-signed SSL c
 
 ```
 .
-├── install_apache_ssl.yml    # Main playbook
+├── install_apache_tls.yml    # Main playbook
 ├── hosts                      # Inventory file
 ├── templates/
 │   ├── ssl-vhost.conf.j2     # SSL virtual host configuration
@@ -55,12 +55,12 @@ This Ansible playbook installs Apache (httpd) on RHEL 9 with a self-signed SSL c
 
 3. **Run the playbook**:
    ```bash
-   ansible-playbook -i hosts install_apache_ssl.yml
+   ansible-playbook -i hosts install_apache_tls.yml
    ```
 
    If you need to provide a sudo password:
    ```bash
-   ansible-playbook -i hosts install_apache_ssl.yml --ask-become-pass
+   ansible-playbook -i hosts install_apache_tls.yml --ask-become-pass
    ```
 
 ## Accessing Your Site

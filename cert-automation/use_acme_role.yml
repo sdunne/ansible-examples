@@ -1,0 +1,10 @@
+---
+- name: Obtain Let's Encrypt certificate using acme_letsencrypt role
+  hosts: localhost
+  gather_facts: false
+
+  vars_files:
+    - secrets.yml
+
+  roles:
+    - role: acme_letsencrypt

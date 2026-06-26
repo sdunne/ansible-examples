@@ -1,0 +1,24 @@
+---
+# ACME/Let's Encrypt Configuration
+acme_directory: https://acme-staging-v02.api.letsencrypt.org/directory
+acme_email: admin@example.com
+
+# Certificate details
+domain_name: example.com
+additional_domains: []
+
+# Certificate file paths
+cert_dir: "./certs"
+account_key_path: "{{ cert_dir }}/account.key"
+cert_key_path: "{{ cert_dir }}/{{ domain_name }}.key"
+cert_csr_path: "{{ cert_dir }}/{{ domain_name }}.csr"
+cert_path: "{{ cert_dir }}/{{ domain_name }}.crt"
+cert_fullchain_path: "{{ cert_dir }}/{{ domain_name }}-fullchain.crt"
+cert_chain_path: "{{ cert_dir }}/{{ domain_name }}-chain.crt"
+
+# GoDaddy API credentials (should be overridden via vault or environment)
+godaddy_api_key: "{{ lookup('env', 'GODADDY_API_KEY') }}"
+godaddy_api_secret: "{{ lookup('env', 'GODADDY_API_SECRET') }}"
+
+# DNS propagation wait time
+dns_wait_seconds: 90

@@ -1,0 +1,28 @@
+---
+galaxy_info:
+  author: Sebastian Dunne
+  description: Obtain Let's Encrypt certificates using ACME with GoDaddy DNS validation
+  company:
+  license: MIT
+  min_ansible_version: "2.9"
+
+  platforms:
+    - name: EL
+      versions:
+        - 8
+        - 9
+    - name: Ubuntu
+      versions:
+        - focal
+        - jammy
+
+  galaxy_tags:
+    - letsencrypt
+    - acme
+    - ssl
+    - tls
+    - certificate
+    - godaddy
+    - dns
+
+dependencies: []

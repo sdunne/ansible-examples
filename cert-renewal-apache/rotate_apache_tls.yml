@@ -1,0 +1,69 @@
+---
+- name: Rotate Apache TLS certificate if expiring soon
+  hosts: "{{ _hosts }}"
+  become: yes
+
+  vars:
+    cert_country: "US"
+    cert_state: "State"
+    cert_locality: "City"
+    cert_organization: "Organization"
+    cert_common_name: "{{ ansible_fqdn }}"
+    cert_validity_days: 365
+    ssl_cert_path: "/etc/pki/tls/certs/apache-selfsigned.crt"
+    ssl_key_path: "/etc/pki/tls/private/apache-selfsigned.key"
+    rotation_threshold_days: 15  # Rotate if cert expires in less than this many days
+
+  tasks:
+    - name: Check if certificate file exists
+      ansible.builtin.stat:
+        path: "{{ ssl_cert_path }}"
+      register: cert_file
+
+    - name: Get certificate expiration date
+      ansible.builtin.command:
+        cmd: "openssl x509 -in {{ ssl_cert_path }} -noout -enddate"
+      register: cert_expiry_output
+      when: cert_file.stat.exists
+      changed_when: false
+
+    - name: Parse expiration date and calculate days remaining
+      ansible.builtin.shell: |
+        # Extract the date from openssl output (format: notAfter=Jan 1 00:00:00 2025 GMT)
+        expiry_date=$(echo "{{ cert_expiry_output.stdout }}" | cut -d= -f2)
+
+        # Convert to epoch timestamp
+        expiry_epoch=$(date -d "$expiry_date" +%s)
+        current_epoch=$(date +%s)
+
+        # Calculate days remaining
+        days_remaining=$(( ($expiry_epoch - $current_epoch) / 86400 ))
+
+        echo "$days_remaining"
+      register: days_remaining_output
+      when: cert_file.stat.exists
+      changed_when: false
+
+    - name: Display certificate expiration information
+      ansible.builtin.debug:
+        msg: |
+          Certificate: {{ ssl_cert_path }}
+          Expiration: {{ cert_expiry_output.stdout | default('N/A') }}
+          Days remaining: {{ days_remaining_output.stdout | default('N/A') }}
+          Rotation needed: {{ (days_remaining_output.stdout | default('999') | int) < rotation_threshold_days }}
+      when: cert_file.stat.exists
+
+    - name: Set rotation flag
+      ansible.builtin.set_fact:
+        needs_rotation: "{{ (days_remaining_output.stdout | int) < rotation_threshold_days }}"
+      when: cert_file.stat.exists
+
+    - name: Certificate does not exist
+      ansible.builtin.debug:
+        msg: "Certificate not found at {{ ssl_cert_path }} - needs initial installation"
+      when: not cert_file.stat.exists
+
+    - name: Set rotation flag for missing certificate
+      ansible.builtin.set_fact:
+        needs_rotation: true
+      when: not cert_file.stat.exists

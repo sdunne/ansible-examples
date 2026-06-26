@@ -29,7 +29,7 @@
     acme_email: admin@example.com
   vars_files:
     - secrets.yml
-    - vars.yml
+    # vars.yml moved to group_vars/all.yml
 
   tasks:
     - name: Ensure certificate directory exists
@@ -108,12 +108,9 @@
 
     - name: Wait for DNS propagation
       ansible.builtin.pause:
-        seconds: 120
+        seconds: 90
         prompt: "Waiting for DNS records to propagate..."
       when: acme_challenge.challenge_data is defined
-
-    # DNS verification removed - dig not available in execution environment
-    # The ACME protocol will verify DNS records during challenge validation
 
     - name: Complete ACME challenge validation
       community.crypto.acme_certificate:

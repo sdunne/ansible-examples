@@ -1,6 +1,7 @@
 ---
 - name: Install Apache with self-signed SSL certificate on RHEL 9
   hosts: "{{ _hosts }}"
+  hosts: all
   become: yes
 
   vars:
