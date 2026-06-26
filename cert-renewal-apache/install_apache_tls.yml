@@ -1,18 +1,12 @@
 ---
 - name: Install Apache with self-signed SSL certificate on RHEL 9
-  hosts: "{{ _hosts }}"
   hosts: all
   become: yes
 
   vars:
-    cert_country: "US"
-    cert_state: "State"
-    cert_locality: "City"
-    cert_organization: "Organization"
-    cert_common_name: "{{ ansible_fqdn }}"
-    cert_validity_days: 29 
-    ssl_cert_path: "/etc/pki/tls/certs/apache-selfsigned.crt"
-    ssl_key_path: "/etc/pki/tls/private/apache-selfsigned.key"
+    # Most variables come from group_vars/all.yml
+    # Override with -e flag if needed: -e "website_domain=test.sdunne.net"
+    cert_common_name: "{{ website_domain }}"
 
   tasks:
     - name: Install Apache and mod_ssl
@@ -20,46 +14,71 @@
         name:
           - httpd
           - mod_ssl
-          - openssl
+          - python3-cryptography
         state: present
 
-    - name: Generate self-signed SSL certificate
-      ansible.builtin.command:
-        cmd: >
-          openssl req -x509 -nodes -days {{ cert_validity_days }}
-          -newkey rsa:2048
-          -keyout {{ ssl_key_path }}
-          -out {{ ssl_cert_path }}
-          -subj "/C={{ cert_country }}/ST={{ cert_state }}/L={{ cert_locality }}/O={{ cert_organization }}/CN={{ cert_common_name }}"
-        creates: "{{ ssl_cert_path }}"
-
-    - name: Set proper permissions on SSL key
-      ansible.builtin.file:
+    - name: Generate private key
+      community.crypto.openssl_privatekey:
         path: "{{ ssl_key_path }}"
+        size: 2048
         mode: '0600'
         owner: root
         group: root
 
-    - name: Set proper permissions on SSL certificate
-      ansible.builtin.file:
+    - name: Generate certificate signing request (CSR)
+      community.crypto.openssl_csr:
+        path: "/tmp/{{ cert_common_name }}.csr"
+        privatekey_path: "{{ ssl_key_path }}"
+        country_name: "{{ cert_country }}"
+        state_or_province_name: "{{ cert_state }}"
+        locality_name: "{{ cert_locality }}"
+        organization_name: "{{ cert_organization }}"
+        common_name: "{{ cert_common_name }}"
+
+    - name: Generate self-signed certificate
+      community.crypto.x509_certificate:
         path: "{{ ssl_cert_path }}"
+        privatekey_path: "{{ ssl_key_path }}"
+        csr_path: "/tmp/{{ cert_common_name }}.csr"
+        provider: selfsigned
+        selfsigned_not_after: "+{{ cert_validity_days }}d"
         mode: '0644'
         owner: root
         group: root
+      notify: Restart Apache
+
+    - name: Configure default HTTP catch-all virtual host
+      ansible.builtin.template:
+        src: templates/default-http.conf.j2
+        dest: /etc/httpd/conf.d/00-default-http.conf
+        mode: '0644'
+      notify: Restart Apache
+
+    - name: Configure default HTTPS catch-all virtual host
+      ansible.builtin.template:
+        src: templates/default-https.conf.j2
+        dest: /etc/httpd/conf.d/00-default-https.conf
+        mode: '0644'
+      notify: Restart Apache
 
     - name: Configure HTTP to HTTPS redirect
       ansible.builtin.template:
         src: templates/http-redirect.conf.j2
-        dest: /etc/httpd/conf.d/http-redirect.conf
+        dest: /etc/httpd/conf.d/10-http-redirect.conf
         mode: '0644'
       notify: Restart Apache
 
     - name: Configure SSL virtual host
       ansible.builtin.template:
         src: templates/ssl-vhost.conf.j2
-        dest: /etc/httpd/conf.d/ssl-vhost.conf
+        dest: /etc/httpd/conf.d/20-ssl-vhost.conf
         mode: '0644'
       notify: Restart Apache
+
+    - name: Read certificate details
+      community.crypto.x509_certificate_info:
+        path: "{{ ssl_cert_path }}"
+      register: cert_info
 
     - name: Create sample index.html
       ansible.builtin.template:

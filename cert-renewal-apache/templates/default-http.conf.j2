@@ -1,0 +1,15 @@
+# Default catch-all for unmatched hostnames (HTTP)
+# This VirtualHost catches any hostname that doesn't match configured sites
+<VirtualHost *:80 _default_>
+    ServerName default
+
+    # Return 403 for any unmatched hostname
+    DocumentRoot /var/www/html
+
+    <Location />
+        Require all denied
+    </Location>
+
+    ErrorDocument 403 "<h1>404 Not Found</h1><p>This server only responds to {{ cert_common_name }}</p>"
+    ErrorLog /var/log/httpd/default_error.log
+</VirtualHost>

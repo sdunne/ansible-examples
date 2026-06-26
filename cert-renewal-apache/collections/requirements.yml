@@ -1,0 +1,9 @@
+---
+# Ansible Galaxy Collections Requirements
+# Install with: ansible-galaxy collection install -r collections/requirements.yml
+
+collections:
+  # Cryptography and certificate management
+  - name: community.crypto
+    version: ">=2.0.0"
+

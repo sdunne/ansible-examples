@@ -1,0 +1,43 @@
+---
+- name: Verify certificate details from file
+  hosts: all
+  become: yes
+  tasks:
+    - name: Read certificate details from file
+      community.crypto.x509_certificate_info:
+        path: "{{ ssl_cert_path }}"
+      register: cert_details
+
+    - name: Display certificate details from file
+      ansible.builtin.debug:
+        msg: |
+          === Certificate from file on server ===
+          Subject: {{ cert_details.subject }}
+          Organization: {{ cert_details.subject.organizationName | default('Not set') }}
+          Common Name: {{ cert_details.subject.commonName }}
+          State: {{ cert_details.subject.stateOrProvinceName }}
+          Locality: {{ cert_details.subject.localityName }}
+
+- name: Verify certificate from website
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Get certificate from remote website
+      community.crypto.get_certificate:
+        host: "{{ website_domain }}"
+        port: 443
+      register: web_cert
+      failed_when: false
+
+    - name: Display certificate details from website
+      ansible.builtin.debug:
+        msg: |
+          === Certificate from website {{ website_domain }} ===
+          Subject: {{ web_cert.subject }}
+          Organization: {{ web_cert.subject.O | default('Not set') }}
+          Common Name: {{ web_cert.subject.CN | default('Not set') }}
+          State: {{ web_cert.subject.ST | default('Not set') }}
+          Locality: {{ web_cert.subject.L | default('Not set') }}
+          Issuer: {{ web_cert.issuer.O | default('Self-signed') }}
+          Expires: {{ web_cert.not_after }}
+      when: web_cert.subject is defined

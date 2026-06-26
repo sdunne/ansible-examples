@@ -2,4 +2,6 @@
 collections:
   - name: microsoft.iis
   - name: community.windows
+  - name: community.crypto
 
+...

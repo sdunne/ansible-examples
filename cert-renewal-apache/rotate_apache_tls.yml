@@ -1,69 +1,85 @@
 ---
-- name: Rotate Apache TLS certificate if expiring soon
-  hosts: "{{ _hosts }}"
-  become: yes
+- name: Check and rotate TLS certificate if needed
+  hosts: localhost
+  gather_facts: false
 
-  vars:
-    cert_country: "US"
-    cert_state: "State"
-    cert_locality: "City"
-    cert_organization: "Organization"
-    cert_common_name: "{{ ansible_fqdn }}"
-    cert_validity_days: 365
-    ssl_cert_path: "/etc/pki/tls/certs/apache-selfsigned.crt"
-    ssl_key_path: "/etc/pki/tls/private/apache-selfsigned.key"
-    rotation_threshold_days: 15  # Rotate if cert expires in less than this many days
+  vars_files:
+    - secrets.yml
 
   tasks:
-    - name: Check if certificate file exists
-      ansible.builtin.stat:
-        path: "{{ ssl_cert_path }}"
-      register: cert_file
+    - name: Get certificate from remote website
+      community.crypto.get_certificate:
+        host: "{{ website_domain }}"
+        port: 443
+      register: cert_info
+      failed_when: false
 
-    - name: Get certificate expiration date
-      ansible.builtin.command:
-        cmd: "openssl x509 -in {{ ssl_cert_path }} -noout -enddate"
-      register: cert_expiry_output
-      when: cert_file.stat.exists
-      changed_when: false
+    - name: Calculate days until expiration
+      ansible.builtin.set_fact:
+        days_remaining: "{{ ((cert_info.not_after | to_datetime('%Y%m%d%H%M%SZ')) - (now(utc=True))).days }}"
+      when: cert_info.not_after is defined
 
-    - name: Parse expiration date and calculate days remaining
-      ansible.builtin.shell: |
-        # Extract the date from openssl output (format: notAfter=Jan 1 00:00:00 2025 GMT)
-        expiry_date=$(echo "{{ cert_expiry_output.stdout }}" | cut -d= -f2)
+    - name: Set rotation needed flag
+      ansible.builtin.set_fact:
+        needs_rotation: "{{ (cert_info.not_after is not defined) or ((days_remaining | default(0) | int) < rotation_threshold_days) }}"
 
-        # Convert to epoch timestamp
-        expiry_epoch=$(date -d "$expiry_date" +%s)
-        current_epoch=$(date +%s)
-
-        # Calculate days remaining
-        days_remaining=$(( ($expiry_epoch - $current_epoch) / 86400 ))
-
-        echo "$days_remaining"
-      register: days_remaining_output
-      when: cert_file.stat.exists
-      changed_when: false
-
-    - name: Display certificate expiration information
+    - name: Display certificate status
       ansible.builtin.debug:
         msg: |
-          Certificate: {{ ssl_cert_path }}
-          Expiration: {{ cert_expiry_output.stdout | default('N/A') }}
-          Days remaining: {{ days_remaining_output.stdout | default('N/A') }}
-          Rotation needed: {{ (days_remaining_output.stdout | default('999') | int) < rotation_threshold_days }}
-      when: cert_file.stat.exists
+          Domain: {{ website_domain }}
+          Issuer: {{ cert_info.issuer.organizationName | default('Unknown') }}
+          Subject: {{ cert_info.subject.commonName | default(website_domain) }}
+          Expires: {{ cert_info.not_after | default('N/A') }}
+          Days remaining: {{ days_remaining | default('N/A') }}
+          Status: {% if needs_rotation %}NEEDS ROTATION{% else %}OK{% endif %}
 
-    - name: Set rotation flag
-      ansible.builtin.set_fact:
-        needs_rotation: "{{ (days_remaining_output.stdout | int) < rotation_threshold_days }}"
-      when: cert_file.stat.exists
+    - name: Obtain new certificate using ACME
+      ansible.builtin.include_role:
+        name: acme_letsencrypt
+      vars:
+        domain_name: "{{ website_domain }}"
+        cert_dir: "./files"
+      when: needs_rotation
 
-    - name: Certificate does not exist
-      ansible.builtin.debug:
-        msg: "Certificate not found at {{ ssl_cert_path }} - needs initial installation"
-      when: not cert_file.stat.exists
+- name: Deploy new certificate to server
+  hosts: all
+  become: yes
+  tasks:
+    - name: Copy certificate to server
+      ansible.builtin.copy:
+        src: "./files/{{ website_domain }}.crt"
+        dest: "{{ ssl_cert_path }}"
+        mode: '0644'
+        owner: root
+        group: root
+      notify: Restart Apache
+      when: hostvars['localhost']['needs_rotation']
 
-    - name: Set rotation flag for missing certificate
-      ansible.builtin.set_fact:
-        needs_rotation: true
-      when: not cert_file.stat.exists
+    - name: Copy private key to server
+      ansible.builtin.copy:
+        src: "./files/{{ website_domain }}.key"
+        dest: "{{ ssl_key_path }}"
+        mode: '0600'
+        owner: root
+        group: root
+      notify: Restart Apache
+      when: hostvars['localhost']['needs_rotation']
+
+    - name: Read certificate details
+      community.crypto.x509_certificate_info:
+        path: "{{ ssl_cert_path }}"
+      register: cert_info
+      when: hostvars['localhost']['needs_rotation']
+
+    - name: Update index.html with new certificate details
+      ansible.builtin.template:
+        src: templates/index.html.j2
+        dest: /var/www/html/index.html
+        mode: '0644'
+      when: hostvars['localhost']['needs_rotation']
+
+  handlers:
+    - name: Restart Apache
+      ansible.builtin.systemd:
+        name: httpd
+        state: restarted

@@ -2,10 +2,47 @@
 <html>
 <head>
     <title>Apache SSL Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 40px; }
+        .cert-details { background: #f4f4f4; padding: 20px; border-radius: 5px; }
+        .cert-details dt { font-weight: bold; margin-top: 10px; }
+        .cert-details dd { margin-left: 20px; }
+    </style>
 </head>
 <body>
     <h1>Apache with SSL is working!</h1>
-    <p>This is a test page served over HTTPS with a self-signed certificate.</p>
-    <p>Server: {{ cert_common_name }}</p>
+    <p>This is a test page served over HTTPS.</p>
+
+    <div class="cert-details">
+        <h2>Certificate Details</h2>
+        <dl>
+            <dt>Common Name (CN):</dt>
+            <dd>{{ cert_info.subject.commonName | default('N/A') }}</dd>
+
+            <dt>Organization (O):</dt>
+            <dd>{{ cert_info.subject.organizationName | default('N/A') }}</dd>
+
+            <dt>Locality (L):</dt>
+            <dd>{{ cert_info.subject.localityName | default('N/A') }}</dd>
+
+            <dt>State/Province (ST):</dt>
+            <dd>{{ cert_info.subject.stateOrProvinceName | default('N/A') }}</dd>
+
+            <dt>Country (C):</dt>
+            <dd>{{ cert_info.subject.countryName | default('N/A') }}</dd>
+
+            <dt>Issuer:</dt>
+            <dd>{{ cert_info.issuer.organizationName | default(cert_info.issuer.commonName | default('N/A')) }}</dd>
+
+            <dt>Valid From:</dt>
+            <dd>{{ cert_info.not_before }}</dd>
+
+            <dt>Valid Until:</dt>
+            <dd>{{ cert_info.not_after }}</dd>
+
+            <dt>Serial Number:</dt>
+            <dd>{{ cert_info.serial_number }}</dd>
+        </dl>
+    </div>
 </body>
 </html>

@@ -1,0 +1,19 @@
+# Default catch-all for unmatched hostnames (HTTPS)
+# This VirtualHost catches any hostname that doesn't match configured sites
+<VirtualHost *:443 _default_>
+    ServerName default
+
+    SSLEngine on
+    SSLCertificateFile {{ ssl_cert_path }}
+    SSLCertificateKeyFile {{ ssl_key_path }}
+
+    # Return 403 for any unmatched hostname
+    DocumentRoot /var/www/html
+
+    <Location />
+        Require all denied
+    </Location>
+
+    ErrorDocument 403 "<h1>404 Not Found</h1><p>This server only responds to {{ cert_common_name }}</p>"
+    ErrorLog /var/log/httpd/default_ssl_error.log
+</VirtualHost>
