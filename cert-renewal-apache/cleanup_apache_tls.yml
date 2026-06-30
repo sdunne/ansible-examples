@@ -1,0 +1,76 @@
+---
+- name: Clear Apache and TLS certificate configuration
+  hosts: all
+  become: yes
+
+  vars:
+    # Most variables come from group_vars/all.yml
+    # Override with -e flag if needed: -e "website_domain=test.sdunne.net"
+    cert_common_name: "{{ website_domain }}"
+
+  tasks:
+    - name: Stop Apache service
+      ansible.builtin.systemd:
+        name: httpd
+        state: stopped
+      ignore_errors: yes
+
+    - name: Disable Apache service
+      ansible.builtin.systemd:
+        name: httpd
+        enabled: no
+      ignore_errors: yes
+
+    - name: Remove Apache configuration files
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/httpd/conf.d/00-default-http.conf
+        - /etc/httpd/conf.d/00-default-https.conf
+        - /etc/httpd/conf.d/10-http-redirect.conf
+        - /etc/httpd/conf.d/20-ssl-vhost.conf
+
+    - name: Remove SSL certificate files
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "{{ ssl_cert_path }}"
+        - "{{ ssl_key_path }}"
+        - "/tmp/{{ cert_common_name }}.csr"
+
+    - name: Remove sample index.html
+      ansible.builtin.file:
+        path: /var/www/html/index.html
+        state: absent
+
+    - name: Remove firewall rules for HTTP and HTTPS
+      ansible.posix.firewalld:
+        service: "{{ item }}"
+        permanent: yes
+        state: disabled
+        immediate: yes
+      loop:
+        - http
+        - https
+      when: ansible_facts.services['firewalld.service'] is defined and ansible_facts.services['firewalld.service'].state == 'running'
+      ignore_errors: yes
+
+    - name: Remove Apache packages (optional - uncomment if needed)
+      ansible.builtin.dnf:
+        name:
+          - httpd
+          - mod_ssl
+        state: absent
+      when: false  # Set to true or remove 'when' to actually remove packages
+
+    - name: Display cleanup summary
+      ansible.builtin.debug:
+        msg:
+          - "Apache and TLS configuration cleanup completed"
+          - "Apache service has been stopped and disabled"
+          - "Custom configuration files removed"
+          - "SSL certificates removed: {{ ssl_cert_path }}, {{ ssl_key_path }}"
+          - "Firewall rules for HTTP/HTTPS removed"
+          - "Note: Apache packages (httpd, mod_ssl) were NOT removed (set when: true to remove)"

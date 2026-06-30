@@ -1,0 +1,10 @@
+- name: Quick Ansible ping test
+  hosts: all
+  become: true
+  gather_facts: false
+
+  tasks:
+    - name: Ping
+      ansible.builtin.ping:
+
+...

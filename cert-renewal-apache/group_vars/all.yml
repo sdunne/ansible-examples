@@ -7,16 +7,19 @@ cert_country: "US"
 cert_state: "Virginia"
 cert_locality: "Arlington"
 cert_organization: "Vandelay Industries"
-cert_validity_days: 30
+cert_validity_days: 30 
 
 # SSL certificate paths (using domain name for better organization)
 ssl_cert_path: "/etc/pki/tls/certs/{{ website_domain }}.crt"
 ssl_key_path: "/etc/pki/tls/private/{{ website_domain }}.key"
 
 # Certificate rotation threshold
-rotation_threshold_days: 370
+rotation_threshold_days: 15 
 
 # ACME/Let's Encrypt configuration
 domain_name: "{{ website_domain }}"
 acme_email: admin@sdunne.net
 acme_directory: https://acme-staging-v02.api.letsencrypt.org/directory 
+# To obtain a production certificate, change acme_directory to:
+# https://acme-v02.api.letsencrypt.org/directory
+
