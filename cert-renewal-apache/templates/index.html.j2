@@ -40,6 +40,9 @@
             <dt>Valid Until:</dt>
             <dd>{{ cert_info.not_after }}</dd>
 
+            <dt>Days Until Expiration:</dt>
+            <dd>{{ ((cert_info.not_after | to_datetime('%Y%m%d%H%M%SZ')) - (ansible_date_time.date | to_datetime('%Y-%m-%d'))).days }}</dd>
+
             <dt>Serial Number:</dt>
             <dd>{{ cert_info.serial_number }}</dd>
         </dl>

@@ -23,6 +23,10 @@
     path: "{{ cert_csr_path }}"
     privatekey_path: "{{ cert_key_path }}"
     common_name: "{{ domain_name }}"
+    country_name: "{{ cert_country }}" # new
+    state_or_province_name: "{{ cert_state }}" # new
+    locality_name: "{{ cert_locality }}" # new
+    organization_name: "{{ cert_organization }}" # new
     subject_alt_name: "{{ ['DNS:' + domain_name] + (additional_domains | map('regex_replace', '^', 'DNS:') | list) }}"
     email_address: "{{ acme_email }}"
 
