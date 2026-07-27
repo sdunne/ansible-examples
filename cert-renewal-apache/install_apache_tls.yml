@@ -1,7 +1,7 @@
 ---
 - name: Install Apache with self-signed SSL certificate on RHEL 9
   hosts: all
-  become: yes
+  become: true
 
   vars:
     # Most variables come from group_vars/all.yml
