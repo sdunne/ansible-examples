@@ -41,6 +41,7 @@ certificates/
 *.tar.gz
 *.zip
 bin/
+*.rpm
 
 # IDE & Editor Files
 .idea/
