@@ -1,0 +1,6 @@
+# {{ ansible_managed }}
+[tcpout]
+defaultGroup = splunk-enterprise
+
+[tcpout:splunk-enterprise]
+server = {{ splunk_server }}:{{ splunk_receiving_port }}

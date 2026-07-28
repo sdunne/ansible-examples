@@ -1,0 +1,100 @@
+---
+- name: Install and configure Splunk Universal Forwarder on RHEL 9
+  hosts: all
+  become: true
+
+  vars:
+    splunk_rpm: splunkforwarder-10.4.1-5a009d941268.x86_64.rpm
+    splunk_home: /opt/splunkforwarder
+    splunk_user: splunkfwd
+    splunk_group: splunkfwd
+    splunk_server: ansible-dev-splunk.redhatgov.io
+    splunk_receiving_port: 9997
+    splunk_monitor_path: /var/log
+
+  tasks:
+    - name: Copy Splunk Universal Forwarder RPM to target
+      ansible.builtin.copy:
+        src: "files/{{ splunk_rpm }}"
+        dest: "/tmp/{{ splunk_rpm }}"
+        mode: '0644'
+
+    - name: Install Splunk Universal Forwarder
+      ansible.builtin.dnf:
+        name: "/tmp/{{ splunk_rpm }}"
+        state: present
+        disable_gpg_check: true
+
+    - name: Set ownership on Splunk home directory
+      ansible.builtin.file:
+        path: "{{ splunk_home }}"
+        owner: "{{ splunk_user }}"
+        group: "{{ splunk_group }}"
+        recurse: true
+
+    - name: Check if boot-start service exists
+      ansible.builtin.stat:
+        path: /etc/systemd/system/SplunkForwarder.service
+      register: boot_start_service
+
+    - name: Accept license and start Splunk forwarder
+      ansible.builtin.command:
+        cmd: "{{ splunk_home }}/bin/splunk start --accept-license --no-prompt --answer-yes"
+        creates: "{{ splunk_home }}/var/run/splunk/splunkd.pid"
+      become_user: "{{ splunk_user }}"
+
+    - name: Stop Splunk forwarder for boot-start configuration
+      ansible.builtin.command:
+        cmd: "{{ splunk_home }}/bin/splunk stop"
+      become_user: "{{ splunk_user }}"
+      when: not boot_start_service.stat.exists
+
+    - name: Enable Splunk forwarder to start at boot
+      ansible.builtin.command:
+        cmd: "{{ splunk_home }}/bin/splunk enable boot-start -user {{ splunk_user }}"
+      when: not boot_start_service.stat.exists
+
+    - name: Start Splunk forwarder via systemd
+      ansible.builtin.systemd:
+        name: SplunkForwarder
+        daemon_reload: true
+        state: started
+        enabled: true
+
+    - name: Configure forwarding to Splunk Enterprise server
+      ansible.builtin.template:
+        src: templates/outputs.conf.j2
+        dest: "{{ splunk_home }}/etc/system/local/outputs.conf"
+        owner: "{{ splunk_user }}"
+        group: "{{ splunk_group }}"
+        mode: '0600'
+      notify: Restart Splunk forwarder
+
+    - name: Configure /var/log monitoring
+      ansible.builtin.template:
+        src: templates/inputs.conf.j2
+        dest: "{{ splunk_home }}/etc/system/local/inputs.conf"
+        owner: "{{ splunk_user }}"
+        group: "{{ splunk_group }}"
+        mode: '0600'
+      notify: Restart Splunk forwarder
+
+    - name: Grant splunkfwd read access to /var/log
+      ansible.posix.acl:
+        path: "{{ splunk_monitor_path }}"
+        entity: "{{ splunk_user }}"
+        etype: user
+        permissions: rX
+        recursive: true
+        state: present
+
+    - name: Clean up RPM from target
+      ansible.builtin.file:
+        path: "/tmp/{{ splunk_rpm }}"
+        state: absent
+
+  handlers:
+    - name: Restart Splunk forwarder
+      ansible.builtin.systemd:
+        name: SplunkForwarder
+        state: restarted
