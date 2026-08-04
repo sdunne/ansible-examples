@@ -1,0 +1,15 @@
+---
+- name: Print All Incoming Splunk Payloads
+  hosts: all
+  sources:
+    - ansible.eda.range:
+        limit: 1
+
+  rules:
+    - name: Catch and Print Any Event
+      condition: true
+      action:
+        debug:
+          msg: "Incoming Payload Received: {{ event }}"
+
+...
