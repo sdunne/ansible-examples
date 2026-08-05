@@ -2,8 +2,11 @@
 - name: Print All Incoming Splunk Payloads
   hosts: all
   sources:
-    - ansible.eda.range:
-        limit: 1
+    - ansible.builtin.webhook:
+        host: 0.0.0.0
+        port: 5000
+#    - ansible.eda.range:
+#        limit: 1
 
   rules:
     - name: Catch and Print Any Event
