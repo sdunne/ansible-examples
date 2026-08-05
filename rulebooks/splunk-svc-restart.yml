@@ -13,18 +13,20 @@
         # certfile: The optional path to a certificate file to enable TLS support
         # keyfile:  The optional path to a key file to be used together with certfile
         # password: The optional password to be used when loading the certificate chain
-      filters:
-        - ansible.eda.dashes_to_underscores:
+        #filters:
+        #- ansible.eda.dashes_to_underscores:
 
   rules:
     - name: Testing Splunk to EDA
-      condition: "SERVICE_STOP" in event.payload.result._raw and "firewalld" in event.payload.result._raw
-      # condition: event.payload is defined
+      #condition: "SERVICE_STOP" in event.payload.result._raw and "firewalld" in event.payload.result._raw
+      condition: event.payload is defined
       action:
-        run_job_template:
-          name: Splunk stopped firewalld
-          organization: Default
-          job_args:
-            extra_vars:
-              eventdata: "{{ event.payload }}"
-              _hosts: "{{ event.payload.result.host }}"
+        debug:
+          var: event.payload.result.host
+        #        run_job_template:
+        #          name: Splunk stopped firewalld
+        #          organization: Default
+        #          job_args:
+        #            extra_vars:
+        #              eventdata: "{{ event.payload }}"
+        #              _hosts: "{{ event.payload.result.host }}"
