@@ -13,8 +13,8 @@
         # certfile: The optional path to a certificate file to enable TLS support
         # keyfile:  The optional path to a key file to be used together with certfile
         # password: The optional password to be used when loading the certificate chain
-      filters:
-        - ansible.builtin.dashes_to_underscores:
+        #      filters:
+        #- ansible.builtin.dashes_to_underscores:
 
   rules:
     - name: Testing Splunk to EDA
