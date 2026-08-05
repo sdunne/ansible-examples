@@ -14,7 +14,7 @@
         # keyfile:  The optional path to a key file to be used together with certfile
         # password: The optional password to be used when loading the certificate chain
       filters:
-        - ansible.eda.dashes_to_underscores:
+        - ansible.builtin.dashes_to_underscores:
 
   rules:
     - name: Testing Splunk to EDA
