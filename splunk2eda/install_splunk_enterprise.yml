@@ -1,0 +1,132 @@
+---
+- name: Install and configure Splunk Enterprise on RHEL 9
+  hosts: splunk_enterprise
+  become: true
+
+  vars_files:
+    - secrets.yml
+
+  vars:
+    splunk_rpm_url: "https://download.splunk.com/products/splunk/releases/10.4.2/linux/splunk-10.4.2-33c3bf42cd73.x86_64.rpm"
+    splunk_rpm: splunk-10.4.2-33c3bf42cd73.x86_64.rpm
+    splunk_home: /opt/splunk
+    splunk_user: splunk
+    splunk_group: splunk
+    splunk_admin_password: "{{ vault_splunk_admin_password }}"
+    splunk_receiving_port: 9997
+    splunk_web_port: 8000
+    splunk_mgmt_port: 8089
+
+  tasks:
+    - name: Download Splunk Enterprise RPM
+      ansible.builtin.get_url:
+        url: "{{ splunk_rpm_url }}"
+        dest: "/tmp/{{ splunk_rpm }}"
+        mode: '0644'
+
+    - name: Install Splunk Enterprise
+      ansible.builtin.dnf:
+        name: "/tmp/{{ splunk_rpm }}"
+        state: present
+        disable_gpg_check: true
+
+    - name: Set ownership on Splunk home directory
+      ansible.builtin.command:
+        cmd: "chown -R {{ splunk_user }}:{{ splunk_group }} {{ splunk_home }}"
+      register: chown_result
+      changed_when: chown_result.rc == 0
+
+    - name: Create user-seed.conf with admin password
+      ansible.builtin.copy:
+        dest: "{{ splunk_home }}/etc/system/local/user-seed.conf"
+        content: |
+          [user_info]
+          USERNAME = admin
+          PASSWORD = {{ splunk_admin_password }}
+        owner: "{{ splunk_user }}"
+        group: "{{ splunk_group }}"
+        mode: '0600'
+
+    - name: Check if boot-start service exists
+      ansible.builtin.stat:
+        path: /etc/systemd/system/Splunkd.service
+      register: boot_start_service
+
+    - name: Accept license and start Splunk Enterprise
+      ansible.builtin.command:
+        cmd: "{{ splunk_home }}/bin/splunk start --accept-license --no-prompt --answer-yes"
+        creates: "{{ splunk_home }}/var/run/splunk/splunkd.pid"
+      become_user: "{{ splunk_user }}"
+
+    - name: Stop Splunk for boot-start configuration
+      ansible.builtin.command:
+        cmd: "{{ splunk_home }}/bin/splunk stop"
+      become_user: "{{ splunk_user }}"
+      when: not boot_start_service.stat.exists
+
+    - name: Enable Splunk Enterprise to start at boot
+      ansible.builtin.command:
+        cmd: "{{ splunk_home }}/bin/splunk enable boot-start -user {{ splunk_user }} -systemd-managed 1"
+      when: not boot_start_service.stat.exists
+
+    - name: Start Splunk Enterprise via systemd
+      ansible.builtin.systemd:
+        name: Splunkd
+        daemon_reload: true
+        state: started
+        enabled: true
+
+    - name: Enable receiving on port {{ splunk_receiving_port }}
+      ansible.builtin.command:
+        cmd: "{{ splunk_home }}/bin/splunk enable listen {{ splunk_receiving_port }} -auth admin:{{ splunk_admin_password }}"
+      become_user: "{{ splunk_user }}"
+      register: enable_listen
+      changed_when: "'Listening for Splunk data on TCP port' in enable_listen.stdout"
+      failed_when:
+        - enable_listen.rc != 0
+        - "'already exists' not in enable_listen.stderr"
+        - "'already listening' not in enable_listen.stderr"
+
+    - name: Enable HTTPS on Splunk Web UI
+      ansible.builtin.template:
+        src: templates/web.conf.j2
+        dest: "{{ splunk_home }}/etc/system/local/web.conf"
+        owner: "{{ splunk_user }}"
+        group: "{{ splunk_group }}"
+        mode: '0600'
+      notify: Restart Splunk Enterprise
+
+    - name: Install firewalld and python3-firewall
+      ansible.builtin.dnf:
+        name:
+          - firewalld
+          - python3-firewall
+        state: present
+
+    - name: Ensure firewalld is running
+      ansible.builtin.systemd:
+        name: firewalld
+        state: started
+        enabled: true
+
+    - name: Open firewall ports for Splunk Enterprise
+      ansible.posix.firewalld:
+        port: "{{ item }}"
+        permanent: true
+        immediate: true
+        state: enabled
+      loop:
+        - "{{ splunk_web_port }}/tcp"
+        - "{{ splunk_mgmt_port }}/tcp"
+        - "{{ splunk_receiving_port }}/tcp"
+
+    - name: Clean up RPM from target
+      ansible.builtin.file:
+        path: "/tmp/{{ splunk_rpm }}"
+        state: absent
+
+  handlers:
+    - name: Restart Splunk Enterprise
+      ansible.builtin.systemd:
+        name: Splunkd
+        state: restarted

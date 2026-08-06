@@ -1,6 +1,6 @@
 ---
 - name: Install and configure Splunk Universal Forwarder on RHEL 9
-  hosts: all
+  hosts: managed_node
   become: true
 
   vars:
@@ -8,7 +8,8 @@
     splunk_home: /opt/splunkforwarder
     splunk_user: splunkfwd
     splunk_group: splunkfwd
-    splunk_server: ansible-dev-splunk.redhatgov.io
+    # splunk_server: ansible-dev-splunk.redhatgov.io
+    splunk_server: splunk.sdunne.net
     splunk_receiving_port: 9997
     splunk_monitor_path: /var/log
 

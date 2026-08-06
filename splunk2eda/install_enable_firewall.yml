@@ -1,5 +1,5 @@
 - name: Install and enable firewalld
-  hosts: all
+  hosts: managed_node
   become: true
 
   tasks:
