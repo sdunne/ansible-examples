@@ -1,6 +1,6 @@
 ---
 - name: Remove IIS
-  hosts: windows
+  hosts: "{{ _hosts }}"
   vars:
     site_name: "demo.sdunne.net"
     site_path: 'C:\inetpub\demo.sdunne.net'
