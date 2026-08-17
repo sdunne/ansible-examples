@@ -1,0 +1,9 @@
+---
+collections:
+  #  - name: ansible.windows
+  #  version: ">=2.0.0"
+  #- name: community.windows
+  #  version: ">=2.0.0"
+# the above collections are in the ee and also in the higher-level requirements file
+  - name: community.crypto
+    version: ">=2.0.0"

@@ -1,27 +1,125 @@
 ---
 - name: Install IIS
-  hosts: all
+  hosts: windows
   vars:
     iis_message: "Test web content"
+    site_name: "demo.sdunne.net"
+    site_path: 'C:\inetpub\demo.sdunne.net'
+    cert_type: "selfsigned"
+    pfx_password: "changeit"
 
   tasks:
     - name: Install IIS
       ansible.windows.win_feature:
         name: Web-Server
         state: present
+        include_management_tools: true
+      register: iis_install
+
+    - name: Reboot if necessary
+      ansible.windows.win_reboot:
+      when: iis_install.reboot_required
 
     - name: Start IIS service
       ansible.windows.win_service:
         name: W3Svc
         state: started
+        start_mode: auto
+
+    - name: Create site directory
+      ansible.windows.win_file:
+        path: '{{ site_path }}'
+        state: directory
+
+    - name: Generate self-signed certificate
+      ansible.windows.win_powershell:
+        script: |
+          $cert = Get-ChildItem -Path Cert:\LocalMachine\My |
+            Where-Object { $_.Subject -eq "CN={{ site_name }}" }
+          if ($cert) {
+            $Ansible.Changed = $false
+            $Ansible.Result = @{ thumbprint = $cert.Thumbprint }
+          } else {
+            $newCert = New-SelfSignedCertificate -DnsName "{{ site_name }}" -CertStoreLocation Cert:\LocalMachine\My
+            $Ansible.Result = @{ thumbprint = $newCert.Thumbprint }
+          }
+      register: selfsigned_cert_result
+      when: cert_type == "selfsigned"
+
+    - name: Convert PEM certificates to PFX
+      delegate_to: localhost
+      community.crypto.openssl_pkcs12:
+        path: certs/demo.sdunne.net.pfx
+        certificate_path: certs/demo_sdunne_fullchain.pem
+        privatekey_path: certs/demo_sdunne_privkey.pem
+        passphrase: "{{ pfx_password }}"
+        friendly_name: "{{ site_name }}"
+        action: export
+        state: present
+      when: cert_type == "letsencrypt"
+
+    - name: Create certificate directory
+      ansible.windows.win_file:
+        path: 'C:\certs'
+        state: directory
+      when: cert_type == "letsencrypt"
+
+    - name: Copy PFX to Windows host
+      ansible.windows.win_copy:
+        src: certs/demo.sdunne.net.pfx
+        dest: 'C:\certs\demo.sdunne.net.pfx'
+      when: cert_type == "letsencrypt"
+
+    - name: Import Let's Encrypt certificate
+      ansible.windows.win_certificate_store:
+        path: 'C:\certs\demo.sdunne.net.pfx'
+        password: "{{ pfx_password }}"
+        store_location: LocalMachine
+        store_name: My
+        key_exportable: true
+        key_storage: machine
+        state: present
+      register: le_cert_result
+      when: cert_type == "letsencrypt"
+
+    - name: Set certificate thumbprint
+      ansible.builtin.set_fact:
+        cert_thumbprint: "{{ selfsigned_cert_result.result.thumbprint if cert_type == 'selfsigned' else le_cert_result.thumbprints[0] }}"
+
+    - name: Create IIS website
+      community.windows.win_iis_website:
+        name: "{{ site_name }}"
+        physical_path: '{{ site_path }}'
+        hostname: "{{ site_name }}"
+        state: started
+
+    - name: Add HTTPS binding
+      community.windows.win_iis_webbinding:
+        name: "{{ site_name }}"
+        protocol: https
+        port: 443
+        host_header: "{{ site_name }}"
+        certificate_hash: "{{ cert_thumbprint }}"
+        certificate_store_name: My
+        ssl_flags: 1
+
+    - name: Allow HTTPS through firewall
+      community.windows.win_firewall_rule:
+        name: Allow HTTPS
+        localport: 443
+        action: allow
+        direction: in
+        protocol: tcp
+        state: present
+        enabled: true
 
     - name: Create website index.html
-      ansible.windows.win_copy:
-        content: "{{ iis_message }}"
-        dest: C:\Inetpub\wwwroot\index.html
+      ansible.windows.win_template:
+        src: index.html.j2
+        dest: '{{ site_path }}\index.html'
 
     - name: Show website address
       ansible.builtin.debug:
-        msg: http://{{ ansible_host }}
+        msg: "https://{{ site_name }}"
 
 ...

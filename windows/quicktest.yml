@@ -1,6 +1,7 @@
 ---
 - name: Quick test of connectivity to Windows host
-  hosts: sdunne-windows
+  hosts: windows
+  gather_facts: false
 
   vars_files:
     - secrets.yml

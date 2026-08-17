@@ -1,8 +1,52 @@
 ---
 - name: Remove IIS
-  hosts: all
+  hosts: windows
+  vars:
+    site_name: "demo.sdunne.net"
+    site_path: 'C:\inetpub\demo.sdunne.net'
+    cert_type: "selfsigned"
 
   tasks:
+    - name: Remove IIS website
+      community.windows.win_iis_website:
+        name: "{{ site_name }}"
+        state: absent
+
+    - name: Remove self-signed certificate
+      ansible.windows.win_powershell:
+        script: |
+          $cert = Get-ChildItem -Path Cert:\LocalMachine\My |
+            Where-Object { $_.Subject -eq "CN={{ site_name }}" }
+          if ($cert) {
+            $cert | Remove-Item -Force
+          } else {
+            $Ansible.Changed = $false
+          }
+      when: cert_type == "selfsigned"
+
+    - name: Remove Let's Encrypt certificate
+      ansible.windows.win_powershell:
+        script: |
+          $cert = Get-ChildItem -Path Cert:\LocalMachine\My |
+            Where-Object { $_.Subject -eq "CN={{ site_name }}" }
+          if ($cert) {
+            $cert | Remove-Item -Force
+          } else {
+            $Ansible.Changed = $false
+          }
+      when: cert_type == "letsencrypt"
+
+    - name: Remove certificate files
+      ansible.windows.win_file:
+        path: 'C:\certs'
+        state: absent
+      when: cert_type == "letsencrypt"
+
+    - name: Remove HTTPS firewall rule
+      community.windows.win_firewall_rule:
+        name: Allow HTTPS
+        state: absent
+
     - name: Stop IIS service
       ansible.windows.win_service:
         name: W3Svc
@@ -11,6 +55,17 @@
     - name: Remove IIS
       ansible.windows.win_feature:
         name: Web-Server
+        include_management_tools: true
         state: absent
+      register: iis_remove
+
+    - name: Remove site directory
+      ansible.windows.win_file:
+        path: '{{ site_path }}'
+        state: absent
+
+    - name: Reboot if necessary
+      ansible.windows.win_reboot:
+      when: iis_remove.reboot_required
 
 ...
