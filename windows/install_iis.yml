@@ -1,6 +1,6 @@
 ---
 - name: Install IIS
-  hosts: windows
+  hosts: "{{ _hosts }}"
   vars:
     iis_message: "Test web content"
     site_name: "demo.sdunne.net"
