@@ -116,22 +116,19 @@
       ansible.builtin.set_fact:
         cert_thumbprint: "{{ selfsigned_cert_result.result.thumbprint if cert_type == 'selfsigned' else le_cert_result.thumbprints[0] }}"
 
-    - name: Create IIS website
-      community.windows.win_iis_website:
+    - name: Create IIS website with HTTPS binding
+      microsoft.iis.website:
         name: "{{ site_name }}"
         physical_path: '{{ site_path }}'
-        hostname: "{{ site_name }}"
         state: started
-
-    - name: Add HTTPS binding
-      community.windows.win_iis_webbinding:
-        name: "{{ site_name }}"
-        protocol: https
-        port: 443
-        host_header: "{{ site_name }}"
-        certificate_hash: "{{ cert_thumbprint }}"
-        certificate_store_name: My
-        ssl_flags: 1
+        bindings:
+          add:
+            - hostname: "{{ site_name }}"
+              protocol: https
+              port: 443
+              certificate_hash: "{{ cert_thumbprint }}"
+              certificate_store_name: My
+              use_sni: true
 
     - name: Allow HTTPS through firewall
       community.windows.win_firewall_rule:

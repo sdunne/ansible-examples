@@ -8,7 +8,7 @@
 
   tasks:
     - name: Remove IIS website
-      community.windows.win_iis_website:
+      microsoft.iis.website:
         name: "{{ site_name }}"
         state: absent
 

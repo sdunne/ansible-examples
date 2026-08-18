@@ -7,3 +7,6 @@ collections:
 # the above collections are in the ee and also in the higher-level requirements file
   - name: community.crypto
     version: ">=2.0.0"
+  - name: microsoft.iis
+
+...
