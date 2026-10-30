@@ -1,0 +1,75 @@
+---
+# Show the YubiKey(s) assigned to an AD user in GreenRADIUS, via the Management API.
+#
+# Usage:
+#   ansible-playbook greenradius_yubikey_lookup.yml -e ad_user=jdoe@example.com \
+#     -e grva_host=greenradius.example.com -e @vault.yml --ask-vault-pass
+#
+# The API never returns a serial number, only the YubiKey public ID (token_id).
+# Factory-programmed keys (public ID starting with "cc") encode the serial in
+# modhex, so it is decoded here. Reprogrammed keys can't be resolved this way.
+- name: Show YubiKey(s) assigned to an AD user in GreenRADIUS
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    grva_host: greenradius.example.com
+    grs_api_user: grsapiusr
+    # grs_api_password: keep in ansible-vault (e.g. -e @vault.yml)
+    ad_user: "{{ undef(hint='Pass -e ad_user=user@domain (UPN format)') }}"
+    grva_validate_certs: true
+    modhex_chars: cbdefghijklnrtuv
+
+  tasks:
+    - name: Query token assignments for the user
+      ansible.builtin.uri:
+        url: "https://{{ grva_host }}/gras-api/v2/mgmt/tokenassignment"
+        method: GET
+        url_username: "{{ grs_api_user }}"
+        url_password: "{{ grs_api_password }}"
+        force_basic_auth: true
+        body_format: json
+        body:
+          username: ["{{ ad_user }}"]
+          token_type: ["yubikey"]
+        return_content: true
+        validate_certs: "{{ grva_validate_certs }}"
+        status_code: 200
+      register: grs_resp
+
+    - name: Fail if the user has no YubiKey mapped
+      ansible.builtin.fail:
+        msg: >-
+          No YubiKey assignments found for {{ ad_user }}.
+          without_mappings={{ grs_resp.json.records_without_mappings }}
+          invalid={{ grs_resp.json.records_invalid }}
+      when: grs_resp.json.records_with_mappings.count | int == 0
+
+    - name: Extract YubiKey mappings
+      ansible.builtin.set_fact:
+        yubikeys: >-
+          {{ grs_resp.json.records_with_mappings.records[ad_user].user_mappings
+             | selectattr('token_type', 'match', '(?i)yubikey') | list }}
+
+    - name: Derive serial from public ID (factory-programmed keys only)
+      ansible.builtin.set_fact:
+        yubikey_report: "{{ yubikey_report | default([]) + [entry] }}"
+      vars:
+        pid: "{{ item.token_id | lower }}"
+        pid_hex: >-
+          {%- for c in pid -%}{{ '0123456789abcdef'[modhex_chars.index(c)] }}{%- endfor -%}
+        entry:
+          public_id: "{{ item.token_id }}"
+          status: "{{ item.status }}"
+          assigned_on: "{{ '%Y-%m-%d %H:%M:%S' | strftime(item.assigned_on | int) }}"
+          serial: >-
+            {{ (pid_hex | int(base=16)) if pid.startswith('cc')
+               else 'not derivable (custom-programmed key)' }}
+      loop: "{{ yubikeys }}"
+      loop_control:
+        label: "{{ item.token_id }}"
+
+    - name: Show result
+      ansible.builtin.debug:
+        msg: "{{ ad_user }} -> {{ yubikey_report }}"

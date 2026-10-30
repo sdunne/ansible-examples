@@ -1,0 +1,80 @@
+---
+# Show the passkey(s) (FIDO2 security keys and Authenticator-app passkeys)
+# registered to a user in Microsoft Entra ID, via Microsoft Graph.
+#
+# Usage:
+#   ansible-playbook entra_passkey_lookup.yml -e entra_user=jdoe@example.com \
+#     -e entra_tenant_id=<tenant-guid> -e entra_client_id=<app-guid> \
+#     -e @vault.yml --ask-vault-pass
+#
+# Requires an Entra app registration with the *application* Graph permission
+# UserAuthenticationMethod.Read.All (admin consent granted).
+#
+# Graph exposes the authenticator model and AAGUID, not the device serial.
+# For YubiKeys the model name (e.g. "YubiKey 5 NFC") identifies the key type.
+- name: Show passkey(s) registered to a user in Microsoft Entra ID
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    entra_tenant_id: "{{ undef(hint='Pass -e entra_tenant_id=<tenant GUID or domain>') }}"
+    entra_client_id: "{{ undef(hint='Pass -e entra_client_id=<app registration GUID>') }}"
+    # entra_client_secret: keep in ansible-vault (e.g. -e @vault.yml)
+    entra_user: "{{ undef(hint='Pass -e entra_user=user@domain (UPN or object ID)') }}"
+    graph_url: https://graph.microsoft.com/v1.0
+
+  tasks:
+    - name: Get Graph access token (client credentials)
+      ansible.builtin.uri:
+        url: "https://login.microsoftonline.com/{{ entra_tenant_id }}/oauth2/v2.0/token"
+        method: POST
+        body_format: form-urlencoded
+        body:
+          client_id: "{{ entra_client_id }}"
+          client_secret: "{{ entra_client_secret }}"
+          scope: https://graph.microsoft.com/.default
+          grant_type: client_credentials
+        return_content: true
+        status_code: 200
+      register: token_resp
+      no_log: true
+
+    - name: Query FIDO2 / passkey authentication methods for the user
+      ansible.builtin.uri:
+        url: "{{ graph_url }}/users/{{ entra_user | urlencode }}/authentication/fido2Methods"
+        method: GET
+        headers:
+          Authorization: "Bearer {{ token_resp.json.access_token }}"
+        return_content: true
+        status_code: [200, 404]
+      register: graph_resp
+
+    - name: Fail if the user does not exist
+      ansible.builtin.fail:
+        msg: "User {{ entra_user }} not found in tenant {{ entra_tenant_id }}."
+      when: graph_resp.status == 404
+
+    - name: Fail if the user has no passkeys registered
+      ansible.builtin.fail:
+        msg: "No passkeys registered for {{ entra_user }}."
+      when: graph_resp.json.value | length == 0
+
+    - name: Build passkey report
+      ansible.builtin.set_fact:
+        passkey_report: "{{ passkey_report | default([]) + [entry] }}"
+      vars:
+        entry:
+          display_name: "{{ item.displayName }}"
+          model: "{{ item.model | default('unknown', true) }}"
+          aaguid: "{{ item.aaGuid }}"
+          attestation: "{{ item.attestationLevel }}"
+          created: "{{ item.createdDateTime | default('unknown', true) }}"
+          method_id: "{{ item.id }}"
+      loop: "{{ graph_resp.json.value }}"
+      loop_control:
+        label: "{{ item.displayName }}"
+
+    - name: Show result
+      ansible.builtin.debug:
+        msg: "{{ entra_user }} -> {{ passkey_report }}"
