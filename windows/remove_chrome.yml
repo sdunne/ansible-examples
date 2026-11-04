@@ -69,12 +69,17 @@
     - name: Stop Chrome and updater processes
       ansible.windows.win_powershell:
         script: |
+          # Match by path as well as name: the current Google updater runs as plain
+          # "updater.exe", which a name-only list misses.
           $names = @(
-            'chrome', 'GoogleUpdate', 'GoogleUpdater',
+            'chrome', 'GoogleUpdate', 'GoogleUpdater', 'updater',
             'GoogleCrashHandler', 'GoogleCrashHandler64', 'elevation_service'
           )
-          $procs = Get-Process -Name $names -ErrorAction SilentlyContinue
-          if ($procs) {
+          $procs = @(Get-Process -ErrorAction SilentlyContinue | Where-Object {
+            ($_.Path -like 'C:\Program Files*\Google\*') -or
+            (($names -contains $_.ProcessName) -and ($_.ProcessName -ne 'updater'))
+          })
+          if ($procs.Count -gt 0) {
             $procs | Stop-Process -Force -ErrorAction SilentlyContinue
             Start-Sleep -Seconds 2
           } else {
@@ -130,11 +135,41 @@
           }
       when: chrome_remove_updater
 
+    # The GoogleUpdater (updater.exe) can still be running here even if Chrome itself was
+    # already gone, or Chrome's uninstaller / a scheduled task can have started it again. A
+    # running updater.exe locks its own file, so the directory removal below fails with
+    # "Access ... denied". Run the updater's own uninstaller first, then stop anything still
+    # running from the Google program folders.
+    - name: Uninstall Google updater and stop leftover processes
+      ansible.windows.win_powershell:
+        script: |
+          $changed = $false
+          $updaters = Get-ChildItem -Path 'C:\Program Files*\Google\GoogleUpdater\*\updater.exe' `
+            -ErrorAction SilentlyContinue
+          foreach ($exe in $updaters) {
+            Start-Process -FilePath $exe.FullName -ArgumentList '--uninstall', '--system' `
+              -Wait -WindowStyle Hidden -ErrorAction SilentlyContinue
+            $changed = $true
+          }
+          $procs = @(Get-Process -ErrorAction SilentlyContinue |
+            Where-Object { $_.Path -like 'C:\Program Files*\Google\*' })
+          if ($procs.Count -gt 0) {
+            $procs | Stop-Process -Force -ErrorAction SilentlyContinue
+            $changed = $true
+          }
+          if ($changed) { Start-Sleep -Seconds 2 }
+          $Ansible.Changed = $changed
+      when: chrome_remove_updater
+
     - name: Remove Chrome and updater directories
       ansible.windows.win_file:
         path: "{{ item }}"
         state: absent
       loop: "{{ chrome_program_dirs + (chrome_updater_dirs if chrome_remove_updater else []) }}"
+      register: chrome_dirs
+      until: chrome_dirs is succeeded
+      retries: 3
+      delay: 5
 
     - name: Find per-user Chrome data directories
       ansible.windows.win_powershell:
