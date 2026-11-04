@@ -106,39 +106,11 @@
         label: "{{ item.display_name }} {{ item.version }}"
       register: chrome_removed
 
-    - name: Find Google updater services
-      ansible.windows.win_powershell:
-        script: |
-          $svcs = Get-Service -Name 'Google*', 'gupdate*' -ErrorAction SilentlyContinue
-          $Ansible.Changed = $false
-          $Ansible.Result = @{ names = @($svcs | Select-Object -ExpandProperty Name) }
-      register: chrome_services
-      check_mode: false
-      when: chrome_remove_updater
-
-    - name: Remove Google updater services
-      ansible.windows.win_service:
-        name: "{{ item }}"
-        state: absent
-      loop: "{{ chrome_services.result.names | default([]) }}"
-      when: chrome_remove_updater
-
-    - name: Remove Google scheduled tasks
-      ansible.windows.win_powershell:
-        script: |
-          $tasks = Get-ScheduledTask -ErrorAction SilentlyContinue |
-            Where-Object { $_.TaskName -like 'Google*' }
-          if ($tasks) {
-            $tasks | Unregister-ScheduledTask -Confirm:$false
-          } else {
-            $Ansible.Changed = $false
-          }
-      when: chrome_remove_updater
-
     # The GoogleUpdater (updater.exe) can still be running here even if Chrome itself was
     # already gone, or Chrome's uninstaller / a scheduled task can have started it again. A
     # running updater.exe locks its own file, so the directory removal below fails with
-    # "Access ... denied". Run the updater's own uninstaller first, then stop anything still
+    # "Access ... denied". Run the updater's own uninstaller first (it also removes its
+    # services and tasks cleanly, before the service sweep below), then stop anything still
     # running from the Google program folders.
     - name: Uninstall Google updater and stop leftover processes
       ansible.windows.win_powershell:
@@ -159,6 +131,43 @@
           }
           if ($changed) { Start-Sleep -Seconds 2 }
           $Ansible.Changed = $changed
+      when: chrome_remove_updater
+
+    - name: Find Google updater services
+      ansible.windows.win_powershell:
+        script: |
+          $svcs = Get-Service -Name 'Google*', 'gupdate*' -ErrorAction SilentlyContinue
+          $Ansible.Changed = $false
+          $Ansible.Result = @{ names = @($svcs | Select-Object -ExpandProperty Name) }
+      register: chrome_services
+      check_mode: false
+      when: chrome_remove_updater
+
+    # Leftovers only - the updater uninstall above normally removes its own services.
+    # Win32 error 1072 ("marked for deletion") means Windows is already deleting the service
+    # and will finish once the last handle closes, so it counts as success. This happens when
+    # deleting one GoogleUpdater service causes the updater to remove the other one itself.
+    - name: Remove Google updater services
+      ansible.windows.win_service:
+        name: "{{ item }}"
+        state: absent
+      loop: "{{ chrome_services.result.names | default([]) }}"
+      register: chrome_svc_removed
+      failed_when:
+        - chrome_svc_removed is failed
+        - "'marked for deletion' not in (chrome_svc_removed.msg | default(''))"
+      when: chrome_remove_updater
+
+    - name: Remove Google scheduled tasks
+      ansible.windows.win_powershell:
+        script: |
+          $tasks = Get-ScheduledTask -ErrorAction SilentlyContinue |
+            Where-Object { $_.TaskName -like 'Google*' }
+          if ($tasks) {
+            $tasks | Unregister-ScheduledTask -Confirm:$false
+          } else {
+            $Ansible.Changed = $false
+          }
       when: chrome_remove_updater
 
     - name: Remove Chrome and updater directories
