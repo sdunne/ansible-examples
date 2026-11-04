@@ -69,23 +69,16 @@
     - name: Stop Chrome and updater processes
       ansible.windows.win_powershell:
         script: |
-          # Match by path as well as name: the current Google updater runs as plain
-          # "updater.exe", which a name-only list misses.
-          $names = @(
-            'chrome', 'GoogleUpdate', 'GoogleUpdater', 'updater',
-            'GoogleCrashHandler', 'GoogleCrashHandler64', 'elevation_service'
-          )
+          # Match by install path, not process name: the current updater runs as a generic
+          # "updater.exe", and per-user Chrome lives under AppData.
           $procs = @(Get-Process -ErrorAction SilentlyContinue | Where-Object {
-            ($_.Path -like 'C:\Program Files*\Google\*') -or
-            (($names -contains $_.ProcessName) -and ($_.ProcessName -ne 'updater'))
+            $_.Path -like 'C:\Program Files*\Google\*' -or
+            $_.Path -like 'C:\Users\*\AppData\Local\Google\*'
           })
-          if ($procs.Count -gt 0) {
-            $procs | Stop-Process -Force -ErrorAction SilentlyContinue
-            Start-Sleep -Seconds 2
-          } else {
-            $Ansible.Changed = $false
-          }
-      when: chrome_found.result.entries | length > 0
+          $procs | Stop-Process -Force -ErrorAction SilentlyContinue
+          if ($procs.Count -gt 0) { Start-Sleep -Seconds 2 }
+          $Ansible.Changed = $procs.Count -gt 0
+      # No `when:` - the updater can still be running after Chrome itself is gone.
 
     # `path` is deliberately omitted: for state=absent with product_id set, win_package reads
     # QuietUninstallString/UninstallString from the registry itself and *appends* `arguments`.
@@ -106,31 +99,25 @@
         label: "{{ item.display_name }} {{ item.version }}"
       register: chrome_removed
 
-    # The GoogleUpdater (updater.exe) can still be running here even if Chrome itself was
-    # already gone, or Chrome's uninstaller / a scheduled task can have started it again. A
-    # running updater.exe locks its own file, so the directory removal below fails with
-    # "Access ... denied". Run the updater's own uninstaller first (it also removes its
-    # services and tasks cleanly, before the service sweep below), then stop anything still
-    # running from the Google program folders.
-    - name: Uninstall Google updater and stop leftover processes
-      ansible.windows.win_powershell:
-        script: |
-          $changed = $false
-          $updaters = Get-ChildItem -Path 'C:\Program Files*\Google\GoogleUpdater\*\updater.exe' `
-            -ErrorAction SilentlyContinue
-          foreach ($exe in $updaters) {
-            Start-Process -FilePath $exe.FullName -ArgumentList '--uninstall', '--system' `
-              -Wait -WindowStyle Hidden -ErrorAction SilentlyContinue
-            $changed = $true
-          }
-          $procs = @(Get-Process -ErrorAction SilentlyContinue |
-            Where-Object { $_.Path -like 'C:\Program Files*\Google\*' })
-          if ($procs.Count -gt 0) {
-            $procs | Stop-Process -Force -ErrorAction SilentlyContinue
-            $changed = $true
-          }
-          if ($changed) { Start-Sleep -Seconds 2 }
-          $Ansible.Changed = $changed
+    # A running updater.exe locks its own files, so the directory removal below fails with
+    # "Access ... denied". Run the updater's own uninstaller first - it also removes its
+    # services and scheduled tasks cleanly, before the leftover sweeps below.
+    - name: Find Google updater executables
+      ansible.windows.win_find:
+        paths:
+          - 'C:\Program Files\Google\GoogleUpdater'
+          - 'C:\Program Files (x86)\Google\GoogleUpdater'
+        patterns: updater.exe
+        recurse: true
+        depth: 2
+      register: chrome_updaters
+      when: chrome_remove_updater
+
+    - name: Uninstall Google updater
+      ansible.windows.win_command: '"{{ item.path }}" --uninstall --system'
+      loop: "{{ chrome_updaters.files | default([]) }}"
+      loop_control:
+        label: "{{ item.path }}"
       when: chrome_remove_updater
 
     - name: Find Google updater services
