@@ -35,6 +35,13 @@
       - 'SOFTWARE\Policies\Google\Chrome'
       - 'SOFTWARE\WOW6432Node\Policies\Google\Chrome'
 
+    # Relative to each user profile (leading backslash so they join onto the profile path).
+    chrome_shortcut_paths:
+      - '\AppData\Roaming\Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar\Google Chrome.lnk'
+      - '\AppData\Roaming\Microsoft\Internet Explorer\Quick Launch\Google Chrome.lnk'
+      - '\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Google Chrome.lnk'
+      - '\Desktop\Google Chrome.lnk'
+
     # Shared discovery script - used by both the find and the verify tasks.
     chrome_find_script: |
       $paths = @(
@@ -185,6 +192,24 @@
         state: absent
       loop: "{{ chrome_user_data.result.paths | default([]) }}"
       when: chrome_remove_user_data
+
+    - name: Find user profiles
+      ansible.windows.win_find:
+        paths: 'C:\Users'
+        file_type: directory
+        hidden: true
+      register: chrome_profiles
+
+    # Covers taskbar pins, Quick Launch, desktop and Start menu shortcuts for every profile,
+    # including C:\Users\Public (the all-users desktop).
+    - name: Remove Chrome shortcuts
+      ansible.windows.win_file:
+        path: "{{ item }}"
+        state: absent
+      loop: >-
+        {{ (chrome_profiles.files | rejectattr('islnk') | map(attribute='path')
+            | product(chrome_shortcut_paths) | map('join') | list)
+           + ['C:\ProgramData\Microsoft\Windows\Start Menu\Programs\Google Chrome.lnk'] }}
 
     # Two reasons this is win_powershell rather than win_regedit:
     #
