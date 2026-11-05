@@ -1,0 +1,17 @@
+---
+- name: Configure the target host for splunk and eda
+  hosts: managed_node
+
+  tasks:
+    - name: Install firewalld
+      ansible.builtin.dnf:
+        name: firewalld
+        state: present
+
+    - name: Start and enable firewalld service
+      ansible.builtin.service:
+        name: firewalld
+        state: started
+        enabled: true
+
+
