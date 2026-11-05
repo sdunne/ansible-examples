@@ -37,7 +37,7 @@
 
     # Restarting Explorer clears the stale Chrome taskbar pin for signed-in users right away.
     # Disruptive (taskbars flicker, open File Explorer windows close), so off by default.
-    chrome_restart_explorer: false
+    chrome_restart_explorer: true
 
     # Shared discovery script - used by both the find and the verify tasks.
     chrome_find_script: |
