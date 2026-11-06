@@ -1,5 +1,5 @@
 ---
-- name: webhook Source Example
+- name: Listen for Splunk alerts
   hosts: all
   sources:
     - name: listen for alerts
@@ -17,8 +17,9 @@
 #- ansible.builtin.dashes_to_underscores:
 
   rules:
-    - name: Testing Splunk to EDA
+    - name: Splunk alert about firewalld stopping
       #condition: "SERVICE_STOP" in event.payload.result._raw and "firewalld" in event.payload.result._raw
+      # condition: true # for testing
       condition: event.payload is defined
       action:
         debug:
@@ -30,3 +31,5 @@
         #            extra_vars:
         #              eventdata: "{{ event.payload }}"
         #              _hosts: "{{ event.payload.result.host }}"
+
+...
