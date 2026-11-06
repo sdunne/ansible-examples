@@ -23,7 +23,7 @@
       condition: event.payload is defined
       action:
         debug:
-          var: event.payload.result.host
+          var: event.payload.results.host
         #        run_job_template:
         #          name: Splunk stopped firewalld
         #          organization: Default
