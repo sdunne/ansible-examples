@@ -12,6 +12,7 @@
     splunk_server: splunk.sdunne.net
     splunk_receiving_port: 9997
     splunk_monitor_path: /var/log
+    splunk_forwarder_hostname: rhel9.sdunne.net
 
   tasks:
     - name: Copy Splunk Universal Forwarder RPM to target

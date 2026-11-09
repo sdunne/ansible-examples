@@ -1,4 +1,7 @@
 # {{ ansible_managed }}
+[default]
+host = {{ splunk_forwarder_hostname }}
+
 [monitor://{{ splunk_monitor_path }}]
 disabled = false
 index = main
