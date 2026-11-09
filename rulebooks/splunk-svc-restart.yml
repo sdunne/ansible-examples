@@ -30,6 +30,6 @@
           job_args:
             extra_vars:
               eventdata: "{{ event.payload }}"
-              _hosts: "{{ event.payload.result.host }}"
+              _hosts: "{{ event.payload.results.host }}"
 
 ...
