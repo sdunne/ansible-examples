@@ -9,7 +9,7 @@
 
     - name: Show eventdata
       ansible.builtin.debug:
-        var: eventdata.result
+        var: eventdata
 
     - name: Restart firewalld
       ansible.builtin.service:
