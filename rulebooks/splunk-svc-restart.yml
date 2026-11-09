@@ -25,8 +25,8 @@
         #debug:
         #  var: event.payload.results.host
         run_job_template:
-          name: Splunk stopped firewalld
-          organization: Default
+          name: "a Remediate stopped firewalld"
+          organization: "Ansible Product Demos (APD)"
           job_args:
             extra_vars:
               eventdata: "{{ event.payload }}"
