@@ -22,8 +22,8 @@
       # condition: true # for testing
       condition: event.payload is defined
       action:
-        debug:
-          var: event.payload.results.host
+        #debug:
+        #  var: event.payload.results.host
         run_job_template:
           name: "a Remediate stopped firewalld"
           organization: "Ansible Product Demos (APD)"
