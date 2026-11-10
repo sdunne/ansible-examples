@@ -28,13 +28,13 @@
     # auditd tags every write/attribute change to /etc/sudoers and
     # /etc/sudoers.d/ with key="sudoers_changes" (see splunk2eda/prep_target_host.yml).
     - name: Sudoers configuration changed
-      condition: event.payload.result._raw is search("sudoers_changes")
+      condition: event.payload.results._raw is search("sudoers_changes")
       # A single visudo save produces several audit records; only launch
       # one job per host within the window.
       throttle:
         once_within: 5 minutes
         group_by_attributes:
-          - event.payload.result.host
+          - event.payload.results.host
       action:
         run_job_template:
           name: "a Respond to sudoers change"
@@ -42,6 +42,6 @@
           job_args:
             extra_vars:
               eventdata: "{{ event.payload }}"
-              _hosts: "{{ event.payload.result.host }}"
+              _hosts: "{{ event.payload.results.host }}"
 
 ...
