@@ -1,0 +1,106 @@
+---
+# Restores sudo configuration to the golden copies in files/ and quarantines
+# any unauthorized drop-ins. Launched by EDA (rulebooks/splunk-sudoers-change.yml)
+# with _hosts and eventdata, or run by hand against managed_node.
+- name: Remediate unauthorized sudoers changes
+  hosts: "{{ _hosts | default('managed_node') }}"
+
+  vars:
+    # 90-cloud-init-users grants ec2-user (Ansible's remote_user) sudo on EC2;
+    # never remove it.
+    sudoers_allowed_dropins:
+      - 90-cloud-init-users
+    sudoers_quarantine_root: /root/sudoers-quarantine
+
+  tasks:
+    - name: Report the change that triggered remediation
+      ansible.builtin.debug:
+        msg:
+          - "Login user (AUID): {{ _raw | regex_search('AUID=\"([^\"]+)\"', '\\1') | default(['unknown'], true) | first }}"
+          - "Command: {{ _raw | regex_search('comm=\"([^\"]+)\"', '\\1') | default(['unknown'], true) | first }}"
+          - "Syscall: {{ _raw | regex_search('SYSCALL=(\\S+)', '\\1') | default(['unknown'], true) | first }}"
+      vars:
+        _raw: "{{ eventdata.result._raw | default('') }}"
+      when: eventdata is defined
+
+    # validate runs visudo against the new file before it replaces the old one,
+    # so a bad golden copy can never break sudo.
+    - name: Restore /etc/sudoers from golden copy
+      ansible.builtin.copy:
+        src: files/sudoers
+        dest: /etc/sudoers
+        owner: root
+        group: root
+        mode: '0440'
+        validate: visudo -cf %s
+        backup: true
+      register: sudoers_restore
+
+    - name: Enforce /etc/sudoers.d ownership and permissions
+      ansible.builtin.file:
+        path: /etc/sudoers.d
+        state: directory
+        owner: root
+        group: root
+        mode: '0750'
+
+    - name: Restore allowed drop-ins from golden copies
+      ansible.builtin.copy:
+        src: "files/sudoers.d/{{ item }}"
+        dest: "/etc/sudoers.d/{{ item }}"
+        owner: root
+        group: root
+        mode: '0440'
+        validate: visudo -cf %s
+      loop: "{{ sudoers_allowed_dropins }}"
+      register: dropin_restore
+
+    - name: Find unauthorized entries in /etc/sudoers.d
+      ansible.builtin.find:
+        paths: /etc/sudoers.d
+        file_type: any
+        hidden: true
+        excludes: "{{ sudoers_allowed_dropins }}"
+      register: unauthorized
+
+    - name: Quarantine and remove unauthorized entries
+      when: unauthorized.matched > 0
+      block:
+        - name: Set quarantine directory for this run
+          ansible.builtin.set_fact:
+            quarantine_dir: "{{ sudoers_quarantine_root }}/{{ now(utc=true, fmt='%Y%m%dT%H%M%SZ') }}"
+
+        - name: Create quarantine directory
+          ansible.builtin.file:
+            path: "{{ quarantine_dir }}"
+            state: directory
+            owner: root
+            group: root
+            mode: '0700'
+
+        - name: Copy unauthorized entries to quarantine
+          ansible.builtin.copy:
+            src: "{{ item.path }}"
+            dest: "{{ quarantine_dir }}/"
+            remote_src: true
+            mode: preserve
+          loop: "{{ unauthorized.files }}"
+          loop_control:
+            label: "{{ item.path }}"
+
+        - name: Remove unauthorized entries from /etc/sudoers.d
+          ansible.builtin.file:
+            path: "{{ item.path }}"
+            state: absent
+          loop: "{{ unauthorized.files }}"
+          loop_control:
+            label: "{{ item.path }}"
+
+    - name: Summarize remediation
+      ansible.builtin.debug:
+        msg:
+          - "/etc/sudoers restored: {{ sudoers_restore.changed }}"
+          - "Tampered /etc/sudoers saved as: {{ sudoers_restore.backup_file | default('n/a') }}"
+          - "Allowed drop-ins restored: {{ dropin_restore.results | selectattr('changed') | map(attribute='item') | list }}"
+          - "Quarantined: {{ unauthorized.files | map(attribute='path') | list }}"
+          - "Quarantine directory: {{ quarantine_dir | default('n/a') }}"
