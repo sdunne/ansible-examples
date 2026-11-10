@@ -3,7 +3,8 @@
 # any unauthorized drop-ins. Launched by EDA (rulebooks/splunk-sudoers-change.yml)
 # with _hosts and eventdata, or run by hand against managed_node.
 - name: Remediate unauthorized sudoers changes
-  hosts: "{{ _hosts | default('managed_node') }}"
+  hosts: "{{ _hosts | default('rhel9.sdunne.net') }}"
+  become: true
 
   vars:
     # 90-cloud-init-users grants ec2-user (Ansible's remote_user) sudo on EC2;

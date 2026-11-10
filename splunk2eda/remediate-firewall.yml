@@ -1,6 +1,6 @@
 ---
 - name: Test playbook for EDA
-  hosts: "{{ _hosts }}"
+  hosts: "{{ _hosts | default('rhel9.sdunne.net') }}"
 
   tasks:
     - name: Show _hosts
