@@ -37,7 +37,7 @@
           - event.payload.result.host
       action:
         run_job_template:
-          name: "Respond to sudoers change"
+          name: "a Respond to sudoers change"
           organization: "Ansible Product Demos (APD)"
           job_args:
             extra_vars:
