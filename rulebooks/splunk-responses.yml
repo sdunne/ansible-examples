@@ -11,9 +11,9 @@
 
   rules:
     - name: Splunk alert about firewalld stopping
-      condition: "SERVICE_STOP" in event.payload.results._raw and "firewalld" in event.payload.results._raw
-      #condition: true # for testing
-      #condition: event.payload is defined # for testing
+      condition: event.payload.results._raw is search("SERVICE_STOP") and event.payload.results._raw is search("firewalld")
+      # condition: true # for testing
+      # condition: event.payload is defined # for testing
       action:
         #debug:
         #  var: event.payload.results.host # for testing
