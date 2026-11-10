@@ -14,4 +14,34 @@
         state: started
         enabled: true
 
+    - name: Install auditd
+      ansible.builtin.dnf:
+        name: audit
+        state: present
 
+    # Starting is allowed; only stop/restart are refused (RefuseManualStop=yes).
+    - name: Start and enable auditd service
+      ansible.builtin.service:
+        name: auditd
+        state: started
+        enabled: true
+
+    # Events are written to /var/log/audit/audit.log, which the Splunk
+    # forwarder ships with sourcetype linux_audit. Search on key=sudoers_changes.
+    - name: Audit changes to sudoers configuration
+      ansible.builtin.copy:
+        dest: /etc/audit/rules.d/50-sudoers.rules
+        owner: root
+        group: root
+        mode: '0600'
+        content: |
+          -w /etc/sudoers -p wa -k sudoers_changes
+          -w /etc/sudoers.d/ -p wa -k sudoers_changes
+      notify: Load audit rules
+
+  handlers:
+    # Loads rules into the kernel without restarting auditd.
+    - name: Load audit rules
+      ansible.builtin.command:
+        cmd: augenrules --load
+      changed_when: true

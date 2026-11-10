@@ -12,6 +12,8 @@
     splunk_server: splunk.sdunne.net
     splunk_receiving_port: 9997
     splunk_monitor_path: /var/log
+    splunk_audit_dir: /var/log/audit
+    splunk_audit_log: "{{ splunk_audit_dir }}/audit.log"
     splunk_forwarder_hostname: rhel9.sdunne.net
 
   tasks:
@@ -90,12 +92,39 @@
         recursive: true
         state: present
 
+    # auditd recreates audit.log as 0600 root:root on every rotation, which
+    # discards any ACLs. Setting log_group makes auditd itself create the
+    # logs as 0640 root:splunkfwd, so access survives rotation.
+    - name: Configure auditd to write logs readable by the splunkfwd group
+      ansible.builtin.lineinfile:
+        path: /etc/audit/auditd.conf
+        regexp: '^\s*log_group\s*='
+        line: "log_group = {{ splunk_group }}"
+        backup: true
+      notify: Restart auditd
+
+    - name: Allow splunkfwd group to traverse the audit log directory
+      ansible.builtin.file:
+        path: "{{ splunk_audit_dir }}"
+        state: directory
+        owner: root
+        group: "{{ splunk_group }}"
+        mode: '0750'
+
     - name: Clean up RPM from target
       ansible.builtin.file:
         path: "/tmp/{{ splunk_rpm }}"
         state: absent
 
   handlers:
+    # auditd has RefuseManualStop=yes, so systemctl restart is rejected;
+    # the legacy service wrapper is the supported way to restart it.
+    # Defined before the Splunk handler so auditd applies the new group first.
+    - name: Restart auditd
+      ansible.builtin.command:
+        cmd: service auditd restart
+      changed_when: true
+
     - name: Restart Splunk forwarder
       ansible.builtin.systemd:
         name: SplunkForwarder

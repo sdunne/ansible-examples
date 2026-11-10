@@ -6,3 +6,10 @@ host = {{ splunk_forwarder_hostname }}
 disabled = false
 index = main
 sourcetype = syslog
+# audit logs are collected by their own stanza below with the correct sourcetype
+blacklist = ^{{ splunk_audit_dir | regex_escape }}/
+
+[monitor://{{ splunk_audit_log }}]
+disabled = false
+index = main
+sourcetype = linux_audit
