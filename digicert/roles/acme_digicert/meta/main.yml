@@ -1,0 +1,21 @@
+---
+galaxy_info:
+  role_name: acme_digicert
+  author: Sebastian Dunne
+  description: Obtain DigiCert DV (incl. wildcard + SAN) certificates via ACME with EAB and GoDaddy dns-01 validation
+  license: MIT
+  min_ansible_version: "2.15"
+  platforms:
+    - name: EL
+      versions:
+        - "8"
+        - "9"
+  galaxy_tags:
+    - digicert
+    - acme
+    - certificate
+    - tls
+    - godaddy
+    - dns
+
+dependencies: []

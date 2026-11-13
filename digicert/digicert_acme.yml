@@ -1,0 +1,10 @@
+---
+- name: Obtain DigiCert wildcard DV certificate via ACME
+  hosts: localhost
+  gather_facts: false
+
+  vars_files:
+    - secrets.yml
+
+  roles:
+    - acme_digicert

@@ -1,0 +1,29 @@
+---
+# DigiCert wildcard DV certificate via ACME (role: acme_digicert)
+
+# Certificate names: CN plus SANs
+acme_digicert_domain: "*.sdunne.net"
+acme_digicert_sans:
+  - sdunne.net
+  # - www.another-zone.com      # add its zone to acme_digicert_godaddy_zones too
+
+# GoDaddy zones that contain the names above
+acme_digicert_godaddy_zones:
+  - sdunne.net
+
+# ACME account
+acme_digicert_email: sdunne@redhat.com
+# Use the exact URL shown in CertCentral > Automation > ACME Directory URLs
+# (it must be created against a wildcard-capable DV product)
+acme_digicert_directory: "https://acme.digicert.com/v2/acme/directory/"
+
+# Output
+acme_digicert_cert_dir: "{{ playbook_dir }}/certs"
+
+# Secrets (defined in secrets.yml / AAP credential)
+acme_digicert_eab_kid: "{{ digicert_kid }}"
+acme_digicert_eab_hmac_key: "{{ digicert_hmac_key }}"
+acme_digicert_godaddy_key: "{{ godaddy_key }}"
+acme_digicert_godaddy_secret: "{{ godaddy_secret }}"
+
+acme_digicert_dns_wait_seconds: 90

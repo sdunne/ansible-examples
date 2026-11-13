@@ -1,0 +1,46 @@
+---
+# challenge_data_dns maps each record FQDN to ALL values required for it.
+# A wildcard + apex pair (*.example.com, example.com) shares
+# _acme-challenge.example.com with two values, so both are sent in one
+# PUT - GoDaddy replaces the whole record set on PUT.
+
+- name: Create TXT records at GoDaddy
+  ansible.builtin.uri:
+    url: "{{ acme_digicert_godaddy_api }}/v1/domains/{{ _zone }}/records/TXT/{{ _name }}"
+    method: PUT
+    headers:
+      Authorization: "sso-key {{ acme_digicert_godaddy_key }}:{{ acme_digicert_godaddy_secret }}"
+    body_format: json
+    body: "{{ _records }}"
+    status_code: [200]
+  loop: "{{ acme_digicert_order.challenge_data_dns | dict2items }}"
+  loop_control:
+    label: "{{ item.key }} ({{ item.value | length }} value(s))"
+  vars:
+    _zone: >-
+      {{ item.key | regex_search(acme_digicert_zone_regex, '\2') | first }}
+    _name: "{{ item.key[:-(_zone | length + 1)] }}"
+    _records: >-
+      {{ item.value
+         | map('regex_replace', '^(.*)$', '{"data": "\1", "ttl": ' ~ acme_digicert_dns_ttl ~ '}')
+         | map('from_json') | list }}
+  when: acme_digicert_txt_state == 'present'
+  no_log: true
+
+- name: Delete TXT records at GoDaddy
+  ansible.builtin.uri:
+    url: "{{ acme_digicert_godaddy_api }}/v1/domains/{{ _zone }}/records/TXT/{{ _name }}"
+    method: DELETE
+    headers:
+      Authorization: "sso-key {{ acme_digicert_godaddy_key }}:{{ acme_digicert_godaddy_secret }}"
+    status_code: [200, 204, 404]
+  loop: "{{ acme_digicert_order.challenge_data_dns | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+  vars:
+    _zone: >-
+      {{ item.key | regex_search(acme_digicert_zone_regex, '\2') | first }}
+    _name: "{{ item.key[:-(_zone | length + 1)] }}"
+  when: acme_digicert_txt_state == 'absent'
+  ignore_errors: true
+  no_log: true

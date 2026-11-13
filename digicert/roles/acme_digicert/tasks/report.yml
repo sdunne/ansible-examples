@@ -1,0 +1,18 @@
+---
+- name: Read issued certificate
+  community.crypto.x509_certificate_info:
+    path: "{{ acme_digicert_cert_path }}"
+  register: acme_digicert_info
+
+- name: Show certificate summary
+  ansible.builtin.debug:
+    msg:
+      - "Certificate : {{ acme_digicert_cert_path }}"
+      - "Full chain  : {{ acme_digicert_fullchain_path }}"
+      - "Private key : {{ acme_digicert_key_path }}"
+      - "Subject CN  : {{ acme_digicert_info.subject.commonName | default('n/a') }}"
+      - "SANs        : {{ acme_digicert_info.subject_alt_name | join(', ') }}"
+      - "Issuer      : {{ acme_digicert_info.issuer.commonName | default(acme_digicert_info.issuer) }}"
+      - >-
+        Expires     : {{ acme_digicert_info.not_after | to_datetime('%Y%m%d%H%M%SZ') }}
+        ({{ ((acme_digicert_info.not_after | to_datetime('%Y%m%d%H%M%SZ')) - now(utc=true)).days }} days)

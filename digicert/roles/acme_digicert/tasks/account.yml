@@ -1,0 +1,15 @@
+---
+- name: Create or verify DigiCert ACME account (External Account Binding)
+  community.crypto.acme_account:
+    account_key_src: "{{ acme_digicert_account_key_path }}"
+    acme_directory: "{{ acme_digicert_directory }}"
+    acme_version: 2
+    state: present
+    terms_agreed: true
+    contact:
+      - "mailto:{{ acme_digicert_email }}"
+    external_account_binding:
+      kid: "{{ acme_digicert_eab_kid }}"
+      alg: "{{ acme_digicert_eab_alg }}"
+      key: "{{ acme_digicert_eab_hmac_key }}"
+  no_log: true

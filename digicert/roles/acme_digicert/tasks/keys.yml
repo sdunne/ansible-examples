@@ -1,0 +1,29 @@
+---
+- name: Ensure certificate directory exists
+  ansible.builtin.file:
+    path: "{{ acme_digicert_cert_dir }}"
+    state: directory
+    mode: '0750'
+
+- name: Generate ACME account private key
+  community.crypto.openssl_privatekey:
+    path: "{{ acme_digicert_account_key_path }}"
+    type: RSA
+    size: 4096
+    mode: '0600'
+
+- name: Generate certificate private key
+  community.crypto.openssl_privatekey:
+    path: "{{ acme_digicert_key_path }}"
+    type: "{{ acme_digicert_key_type }}"
+    size: "{{ acme_digicert_key_size if acme_digicert_key_type == 'RSA' else omit }}"
+    curve: "{{ acme_digicert_key_curve if acme_digicert_key_type == 'ECC' else omit }}"
+    mode: '0600'
+
+- name: Generate CSR
+  community.crypto.openssl_csr:
+    path: "{{ acme_digicert_csr_path }}"
+    privatekey_path: "{{ acme_digicert_key_path }}"
+    common_name: "{{ acme_digicert_domain }}"
+    subject_alt_name: "{{ acme_digicert_all_names | map('regex_replace', '^', 'DNS:') | list }}"
+    mode: '0644'

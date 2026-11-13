@@ -1,0 +1,45 @@
+---
+# ---------------------------------------------------------------
+# DigiCert ACME (from CertCentral > Automation > ACME Directory URLs)
+# The DV / wildcard-DV product is bound to the directory URL + EAB pair.
+# ---------------------------------------------------------------
+acme_digicert_directory: ""        # required
+acme_digicert_email: ""            # required
+acme_digicert_eab_kid: ""          # required
+acme_digicert_eab_hmac_key: ""     # required
+acme_digicert_eab_alg: HS256
+
+# ---------------------------------------------------------------
+# Certificate
+# ---------------------------------------------------------------
+acme_digicert_domain: ""           # CN, e.g. "*.example.com"
+acme_digicert_sans: []             # extra names, e.g. ["example.com", "www.example.org"]
+acme_digicert_cert_name: "{{ acme_digicert_domain | replace('*', 'wildcard') }}"
+acme_digicert_key_type: RSA        # RSA or ECC
+acme_digicert_key_size: 2048       # RSA only
+acme_digicert_key_curve: secp384r1 # ECC only
+acme_digicert_remaining_days: 30   # renew when fewer days than this remain
+
+# ---------------------------------------------------------------
+# Output paths
+# ---------------------------------------------------------------
+acme_digicert_cert_dir: "./certs"
+acme_digicert_account_key_path: "{{ acme_digicert_cert_dir }}/digicert-account.key"
+acme_digicert_key_path: "{{ acme_digicert_cert_dir }}/{{ acme_digicert_cert_name }}.key"
+acme_digicert_csr_path: "{{ acme_digicert_cert_dir }}/{{ acme_digicert_cert_name }}.csr"
+acme_digicert_cert_path: "{{ acme_digicert_cert_dir }}/{{ acme_digicert_cert_name }}.crt"
+acme_digicert_fullchain_path: "{{ acme_digicert_cert_dir }}/{{ acme_digicert_cert_name }}-fullchain.crt"
+acme_digicert_chain_path: "{{ acme_digicert_cert_dir }}/{{ acme_digicert_cert_name }}-chain.crt"
+
+# ---------------------------------------------------------------
+# GoDaddy DNS (dns-01)
+# ---------------------------------------------------------------
+acme_digicert_godaddy_key: ""      # required
+acme_digicert_godaddy_secret: ""   # required
+acme_digicert_godaddy_api: https://api.godaddy.com
+# Zones hosted at GoDaddy. Defaults to the last two labels of the CN;
+# set explicitly when SANs span multiple zones or for zones like co.uk.
+acme_digicert_godaddy_zones:
+  - "{{ (acme_digicert_domain | regex_replace('^\\*\\.', '')).split('.')[-2:] | join('.') }}"
+acme_digicert_dns_ttl: 600
+acme_digicert_dns_wait_seconds: 90

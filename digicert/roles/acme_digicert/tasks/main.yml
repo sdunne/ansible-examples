@@ -1,0 +1,93 @@
+---
+- name: Build name list and GoDaddy zone matcher
+  ansible.builtin.set_fact:
+    acme_digicert_all_names: "{{ ([acme_digicert_domain] + acme_digicert_sans) | unique }}"
+    # Matches the longest configured zone at the end of a name; group 2 = zone
+    acme_digicert_zone_regex: >-
+      {{ '(^|\.)(' ~ (acme_digicert_godaddy_zones | map('regex_escape') | join('|')) ~ ')$' }}
+
+- name: Validate required variables
+  ansible.builtin.assert:
+    that:
+      - acme_digicert_directory | length > 0
+      - acme_digicert_email | length > 0
+      - acme_digicert_eab_kid | length > 0
+      - acme_digicert_eab_hmac_key | length > 0
+      - acme_digicert_domain | length > 0
+      - acme_digicert_godaddy_key | length > 0
+      - acme_digicert_godaddy_secret | length > 0
+      - acme_digicert_key_type in ['RSA', 'ECC']
+    fail_msg: "Missing or invalid acme_digicert_* variables - see roles/acme_digicert/README.md"
+    quiet: true
+
+- name: Validate every name belongs to a configured GoDaddy zone
+  ansible.builtin.assert:
+    that:
+      - _unmatched | length == 0
+    fail_msg: >-
+      These names are not in acme_digicert_godaddy_zones
+      ({{ acme_digicert_godaddy_zones | join(', ') }}): {{ _unmatched | join(', ') }}
+    quiet: true
+  vars:
+    _unmatched: "{{ acme_digicert_all_names | reject('search', acme_digicert_zone_regex) | list }}"
+
+- name: Generate keys and CSR
+  ansible.builtin.include_tasks: keys.yml
+
+- name: Ensure DigiCert ACME account
+  ansible.builtin.include_tasks: account.yml
+
+- name: Request certificate / retrieve dns-01 challenges
+  community.crypto.acme_certificate:
+    account_key_src: "{{ acme_digicert_account_key_path }}"
+    acme_directory: "{{ acme_digicert_directory }}"
+    acme_version: 2
+    challenge: dns-01
+    csr: "{{ acme_digicert_csr_path }}"
+    dest: "{{ acme_digicert_cert_path }}"
+    fullchain_dest: "{{ acme_digicert_fullchain_path }}"
+    chain_dest: "{{ acme_digicert_chain_path }}"
+    remaining_days: "{{ acme_digicert_remaining_days }}"
+    terms_agreed: true
+    modify_account: false
+  register: acme_digicert_order
+
+- name: Answer dns-01 challenges via GoDaddy
+  when: acme_digicert_order.challenge_data_dns | default({}) | length > 0
+  block:
+    - name: Create challenge TXT records
+      ansible.builtin.include_tasks: godaddy_txt.yml
+      vars:
+        acme_digicert_txt_state: present
+
+    - name: Wait for DNS propagation
+      ansible.builtin.pause:
+        seconds: "{{ acme_digicert_dns_wait_seconds }}"
+
+    - name: Complete validation and download certificate
+      community.crypto.acme_certificate:
+        account_key_src: "{{ acme_digicert_account_key_path }}"
+        acme_directory: "{{ acme_digicert_directory }}"
+        acme_version: 2
+        challenge: dns-01
+        csr: "{{ acme_digicert_csr_path }}"
+        dest: "{{ acme_digicert_cert_path }}"
+        fullchain_dest: "{{ acme_digicert_fullchain_path }}"
+        chain_dest: "{{ acme_digicert_chain_path }}"
+        remaining_days: "{{ acme_digicert_remaining_days }}"
+        data: "{{ acme_digicert_order }}"
+        terms_agreed: true
+        modify_account: false
+      register: acme_digicert_cert
+
+  always:
+    - name: Remove challenge TXT records
+      ansible.builtin.include_tasks: godaddy_txt.yml
+      vars:
+        acme_digicert_txt_state: absent
+
+- name: Report certificate details
+  ansible.builtin.include_tasks: report.yml
+  when: >-
+    acme_digicert_order is changed
+    or (acme_digicert_cert is defined and acme_digicert_cert is changed)
