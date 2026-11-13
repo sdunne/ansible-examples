@@ -3,9 +3,11 @@
   hosts: managed_node
 
   tasks:
-    - name: Install firewalld
+    - name: Install firewalld and auditd
       ansible.builtin.dnf:
-        name: firewalld
+        name:
+          - firewalld
+          - audit
         state: present
 
     - name: Start and enable firewalld service
@@ -13,11 +15,6 @@
         name: firewalld
         state: started
         enabled: true
-
-    - name: Install auditd
-      ansible.builtin.dnf:
-        name: audit
-        state: present
 
     # Starting is allowed; only stop/restart are refused (RefuseManualStop=yes).
     - name: Start and enable auditd service
